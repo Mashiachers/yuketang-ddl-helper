@@ -134,3 +134,5 @@ export type ExtensionMessage =
   | { type: 'OPEN_URL'; url: string };
 
 export type ExtensionResponse = { ok: true; summary?: StatsSummary; origin?: string } | { ok: false; error: string };
+
+export * from './resources';
