@@ -48,6 +48,7 @@ npm run dev         # vite --open /preview.html
 ## 6. Shared Context Documents
 
 Read these before starting any task:
+- `docs/agent-workflow/NEXT_SESSION_HANDOFF.md` (latest release state, owner preferences & next milestone)
 - `docs/agent-workflow/PROJECT_CONTEXT.md`
 - `docs/agent-workflow/ARCHITECTURE.md`
 - `docs/agent-workflow/CONTRACTS.md`
