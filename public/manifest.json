@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "雨课堂 DDL 助手",
+  "description": "纯本地运行的雨课堂全课程 DDL 聚合看板，支持一键导出多级提醒日历 (.ics) 与打包结构化 Prompt 复制给 AI。",
+  "version": "0.1.0",
+  "permissions": [
+    "storage",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://*.yuketang.cn/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "雨课堂 DDL 助手"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.yuketang.cn/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
