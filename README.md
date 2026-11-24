@@ -44,7 +44,9 @@
 1. 前往本仓库右侧 **Releases** 页面，下载最新版的 `yuketang-ddl-helper-v*.zip` 并解压到一个固定文件夹（例如 `Documents/yuketang-ddl-helper`）。
 2. 在 Chrome 地址栏打开 `chrome://extensions/`（Edge 打开 `edge://extensions/`）。
 3. 开启右上角 **开发者模式（Developer mode）**。
+
 <img width="766" height="136" alt="image" src="https://github.com/user-attachments/assets/1d4e79ba-af2b-4ef3-bcda-534c526225ea" />
+
 4. 点击 **加载已解压的扩展程序（Load unpacked）**，选择刚刚解压出来的文件夹（目录内应直接包含 `manifest.json`）。
 <img width="998" height="581" alt="image" src="https://github.com/user-attachments/assets/078bc596-9a6c-4c61-b7ad-61b2101396e6" />
 5. 打开并登录你的雨课堂页面（如 `https://changjiang.yuketang.cn`），即可在右下角看到悬浮入口。
