@@ -134,6 +134,7 @@ export interface ResourceCenterBackend {
   downloadBatch(req: ResourceDownloadBatchRequest): Promise<DownloadBatchResult>;
   exportBundle(req: ResourceExportRequest): Promise<ResourceExportResponse>;
   getSyncStatus?(platform: PlatformInfo, useDemoMode: boolean): Promise<SyncStatusReport | null>;
+  clearResourceIndex?(platform: PlatformInfo, useDemoMode: boolean): Promise<void>;
 }
 
 export interface ResourceNotice {
@@ -247,6 +248,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
   const [discovery, setDiscovery] = useState<ResourceDiscoveryResult | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatusReport | null>(null);
   const [loading, setLoading] = useState(false);
+  const [clearingIndex, setClearingIndex] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ completed: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -277,6 +279,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
   const taskAbortRef = useRef<AbortController | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const syncedKeyRef = useRef<string | null>(null);
+  const clearingIndexRef = useRef(false);
 
   // Keep latest v0.1 courses/effectiveItems in refs so 30s clock ticks never restart resource sync.
   const latestCoursesRef = useRef(app.syncResult?.courses);
@@ -311,6 +314,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
 
   const refreshResources = useCallback(
     async (force = false) => {
+      if (clearingIndexRef.current) return;
       syncAbortRef.current?.abort();
       const controller = new AbortController();
       syncAbortRef.current = controller;
@@ -374,6 +378,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
         setError((err as Error)?.message || '拉取课程资源失败，请稍后重试');
       } finally {
         if (syncAbortRef.current === controller) {
+          syncAbortRef.current = null;
           setLoading(false);
           setSyncProgress(null);
         }
@@ -382,9 +387,37 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
     [app.platform, app.settings.useDemoMode, app.syncResult?.source, refreshSyncStatus, resolveBackend, showNotice],
   );
 
+  const clearResourceIndex = useCallback(async () => {
+    const backend = resolveBackend();
+    if (!backend.clearResourceIndex || clearingIndexRef.current || syncAbortRef.current || busyMode) return;
+
+    const useDemoMode = app.settings.useDemoMode || app.syncResult?.source === 'demo';
+    clearingIndexRef.current = true;
+    setClearingIndex(true);
+    try {
+      await backend.clearResourceIndex(app.platform, useDemoMode);
+      syncedKeyRef.current = null;
+      setDiscovery(null);
+      setSelectedCourseId('all');
+      setSelectedResourceKeys(new Set());
+      setExportCourseIds([]);
+      setLastBatchResult(null);
+      setLastExportManifest(null);
+      setLastExportFilename(null);
+      setSyncStatus(null);
+      setError(null);
+      showNotice('已清空当前站点的资源索引');
+    } catch {
+      showNotice('清空资源索引失败，请重试', 'error');
+    } finally {
+      clearingIndexRef.current = false;
+      setClearingIndex(false);
+    }
+  }, [app.platform, app.settings.useDemoMode, app.syncResult?.source, busyMode, resolveBackend, showNotice]);
+
   // Auto-sync lazily once per (origin, mode) when user opens resources / AI workflow / diagnostics
   useEffect(() => {
-    if (!autoSync || !app.isOpen) return;
+    if (!autoSync || !app.isOpen || clearingIndexRef.current) return;
     const isRelevantView = app.view === 'resources' || app.view === 'prompt' || (app.view === 'settings' && app.advancedOpen);
     if (!isRelevantView) return;
 
@@ -549,7 +582,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
 
   const downloadSingle = useCallback(
     async (material: CourseMaterial) => {
-      if (busyMode) return;
+      if (busyMode || clearingIndexRef.current) return;
       if (!isMaterialDownloadable(material)) {
         showNotice('该资源不支持直接下载，请点击右侧链接在雨课堂打开', 'error');
         return;
@@ -622,7 +655,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
 
   const runBatchDownload = useCallback(
     async (targets: CourseMaterial[], forceRedownload = false) => {
-      if (busyMode) return;
+      if (busyMode || clearingIndexRef.current) return;
       const downloadableTargets = targets.filter(isMaterialDownloadable);
       if (downloadableTargets.length === 0) {
         showNotice('没有可下载的课程资源', 'error');
@@ -730,7 +763,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
 
   const exportBundle = useCallback(
     async (modeOverride?: ExportMode, courseIdsOverride?: string[]): Promise<ExportManifest | null> => {
-      if (busyMode) return null;
+      if (busyMode || clearingIndexRef.current) return null;
       if (!discovery) {
         showNotice('请先同步课程资源后再导出', 'error');
         return null;
@@ -856,6 +889,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
     syncedAt,
     syncStatus,
     loading,
+    clearingIndex,
     syncProgress,
     error,
 
@@ -902,6 +936,7 @@ export function useResourceCenter(app: DdlAppController, options: UseResourceCen
     failedMaterials,
 
     refreshResources,
+    clearResourceIndex,
     downloadSingle,
     downloadSelected,
     retryFailed,

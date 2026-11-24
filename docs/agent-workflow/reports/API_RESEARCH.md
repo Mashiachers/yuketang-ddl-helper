@@ -1,7 +1,7 @@
 # Yuketang Read-Only Resource API Research Report (`v0.2.0-beta`)
 
 - **Author**: Agent A (API Research & Platform Adapter)
-- **Date**: 2026-11-24
+- **Date**: 2026-11-24, with authenticated Changjiang audit results from 2026-11-25
 - **Scope**: Read-only course, chapter, slide, courseware attachment, announcement, and assignment/exam discovery APIs across Yuketang (`*.yuketang.cn`) branches.
 - **Compliance Boundary**: Strictly read-only student access to authorized course metadata and downloadable resources. No auto-attendance, auto-answering, auto-submission, video farming, DRM bypass, or third-party data exfiltration.
 
@@ -11,8 +11,8 @@
 
 To prevent fabricating API behavior, every finding in this report is classified into one of three tiers:
 
-1. **Live-Verified (This Project, v0.1)**: Directly observed against a real authenticated Changjiang Yuketang (`changjiang.yuketang.cn`) session during v0.1 development. Marked `experimental: false` in `RESOURCE_ENDPOINT_SPECS`.
-2. **OSS-Audited / Unverified Live Here**: Directly verified in the public source code or engineering documentation of open-source projects audited below, but **not** yet executed against a live authenticated session during this v0.2 development pass. Marked `experimental: true` in `RESOURCE_ENDPOINT_SPECS` per **ADR-004**.
+1. **Live-Verified (This Project)**: Successful responses observed against an authenticated Changjiang Yuketang (`changjiang.yuketang.cn`) session during v0.1 development or the 2026-11-25 audit. The endpoint spec carries `experimental: false` and lists the verified hostname in `verifiedOn`. Diagnostics mark requests to other hosts experimental.
+2. **OSS-Audited / Unverified Live Here**: Evidence comes from public source code or documentation, or the project's live audit did not observe a successful response. These specs carry `experimental: true` per **ADR-004**.
 3. **Mock / Fixture-Tested**: Exercised by automated Vitest unit tests using sanitized synthetic payloads in `tests/fixtures/yuketang-resources.ts`.
 
 ---
@@ -104,7 +104,7 @@ To prevent fabricating API behavior, every finding in this report is classified 
 
 | Branch | Hostname | `PlatformInfo.variant` | Session Isolation | Known API Quirks |
 | :--- | :--- | :--- | :--- | :--- |
-| **Changjiang (长江雨课堂)** | `changjiang.yuketang.cn` | `changjiang` | Isolated | v0.1 live-verified for `/v2/api/web/courses/list` and `/v2/api/web/logs/learn/{classroom_id}` (page 0). Requires `xtbz: ykt` on `/c27/*` and `/mooc-api/*`. |
+| **Changjiang (长江雨课堂)** | `changjiang.yuketang.cn` | `changjiang` | Isolated | Seven live-verified endpoints as of 2026-11-25. Requires `xtbz: ykt` on `/c27/*` and `/mooc-api/*`. |
 | **Main / Standard (雨课堂)** | `www.yuketang.cn` / `yuketang.cn` | `main` | Isolated | Used as default in `powercess/yuketang-mcp` and `siye4366/xxt-Tool`; supports `/v2/api/web/*`, `/api/v3/*`, `/c27/*`, `/v/discussion/v2/*`. |
 | **Hetang / Pro (荷塘雨课堂)** | `pro.yuketang.cn` | `hetang` | Isolated | Audited via OneTHU & `powercess/yuketang-mcp`. Often requires `sessionid` + `uv_id` cookies; `/mooc-api/.../course/chapter` may return `80019` (use `/c27/.../course/progress/`). |
 | **Huanghe (黄河雨课堂)** | `huanghe.yuketang.cn` | `huanghe` | Isolated | Listed in `powercess/yuketang-mcp` regional table; shares `/v2/api/web/*` & `/api/v3/*` schema, unverified live in this project. |
@@ -120,17 +120,21 @@ To prevent fabricating API behavior, every finding in this report is classified 
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `courses-v2-list` | `/v2/api/web/courses/list?identity=2` | `courses` | Yes (`changjiang.yuketang.cn`, v0.1) | **`false`** | v0.1 baseline; confirmed in `powercess/yuketang-mcp` & `siye4366/xxt-Tool`. |
 | `courses-mooc-user` | `/mooc-api/v1/lms/user/user-courses/?status=1&page=1&page_size=50` | `courses` | No | **`true`** | v0.1 fallback candidate for MOOC/campus deployments; requires `xtbz: ykt`. |
-| `classroom-detail-v2` | `/v2/api/web/classrooms/{classroom_id}?role=5` | `courses` | No | **`true`** | OSS-audited (`powercess/yuketang-mcp`, `siye4366/xxt-Tool`); exposes `course_id`, `free_sku_id`, `uv_id`, `class_end`. |
+| `classroom-detail-v2` | `/v2/api/web/classrooms/{classroom_id}?role=5` | `courses` | Changjiang, 2026-11-25 | **`false`** | HTTP 200, `errcode: 0`. |
 | `learn-logs-v2` | `/v2/api/web/logs/learn/{classroom_id}?actype=-1&page={p}&offset={n}&sort=-1` | `materials` | Yes (`changjiang.yuketang.cn`, v0.1 page 0) | **`false`** | v0.1 baseline for activity logs. Multi-page pagination (`page >= 1`) & non-homework material extraction audited via OSS and unit-tested with fixtures. |
-| `course-progress-c27` | `/c27/online_courseware/schedule/course/progress/?classroom_id={classroom_id}&course_id={course_id}` | `chapters` | No | **`true`** | OSS-audited (`powercess/yuketang-mcp`); preferred chapter/leaf tree (`course_progress[].section_leaf_list[]`), requires `xtbz: ykt`. |
-| `course-chapter-mooc` | `/mooc-api/v1/lms/learn/course/chapter?cid={course_id}&classroom_id={classroom_id}` | `chapters` | No | **`true`** | Fallback chapter tree; known to return business code `80019` on newer branches, requires `xtbz: ykt`. |
+| `course-progress-c27` | `/c27/online_courseware/schedule/course/progress/?classroom_id={classroom_id}&course_id={course_id}` | `chapters` | Changjiang, 2026-11-25 | **`false`** | HTTP 200, `success: true`, `data.course_progress[]`. Requires `xtbz: ykt`. |
+| `course-chapter-mooc` | `/mooc-api/v1/lms/learn/course/chapter?cid={course_id}&classroom_id={classroom_id}` | `chapters` | No | **`true`** | HTTP 400 in the Changjiang audit. Retained as a fallback for other deployments. Requires `xtbz: ykt`. |
 | `courseware-pub-news` | `/c27/online_courseware/xty/kls/pub_news/{course_id}/` | `materials` | No | **`true`** | v0.1 legacy fallback candidate; requires `xtbz: ykt`. |
 | `leaf-info-mooc` | `/mooc-api/v1/lms/learn/leaf_info/{classroom_id}/{leaf_id}/` | `materials` | No | **`true`** | OSS-audited (`siye4366/xxt-Tool`); requires `xtbz: ykt` + `classroom-id` header. |
-| `lesson-summary-v3` | `/api/v3/lesson-summary/student?lesson_id={lesson_id}` | `slides` | No | **`true`** | OSS-audited (`powercess/yuketang-mcp`); returns `presentations[]` list (`id`, `title`, `cover`, `slidesCount`). |
-| `lesson-presentation-v3` | `/api/v3/lesson-summary/student/presentation?presentation_id={presentation_id}&lesson_id={lesson_id}` | `slides` | No | **`true`** | OSS-audited (`powercess/yuketang-mcp`); returns ordered `slides[]` with `index` and `cover` image URLs. |
+| `lesson-summary-v3` | `/api/v3/lesson-summary/student?lesson_id={lesson_id}` | `slides` | Changjiang, 2026-11-25 | **`false`** | HTTP 200, `code: 0`, `data.presentations[]` and `data.fileSharing`. |
+| `lesson-presentation-v3` | `/api/v3/lesson-summary/student/presentation?presentation_id={presentation_id}&lesson_id={lesson_id}` | `slides` | Changjiang, 2026-11-25 | **`false`** | HTTP 200, `code: 0`, `data.slides[]` with image URLs. Audited slide lists contained 59–104 pages. |
 | `cards-detlist-v2` | `/v2/api/web/cards/detlist/{courseware_id}?classroom_id={classroom_id}` | `slides` | No | **`true`** | Publicly documented v2 courseware card/slide detail endpoint; unverified live here. |
-| `discussion-announcements-v2` | `/v/discussion/v2/announcements/?cid={classroom_id}&limit=20&offset=0&type=9` | `announcements` | No | **`true`** | OSS-audited (`powercess/yuketang-mcp`); course announcements under `data.data`. |
+| `discussion-announcements-v2` | `/v/discussion/v2/announcements/?cid={classroom_id}&limit=20&offset=0&type=9` | `announcements` | Changjiang, 2026-11-25 | **`false`** | HTTP 200, `code: 0`, `success: true`, `data: { status, message, data, has_old_notice }`. |
 | `course-homework-v2` | `/v2/api/web/courses/{classroom_id}/homework` | `materials` | No | **`true`** | v0.1 fallback candidate for legacy course homework/attachments. |
+
+The 2026-11-25 audit observed classroom lessons with `leaf_type: 8` under `course_progress[].section_leaf_list[]` and matching `type: 14` entries in learn logs. The adapter matches the leaf's `leafinfo_id` (or `id`) against the log's lesson/courseware ID. The summary's presentation title can differ from the lesson title. One observed title, `计算机体系结构+-+第五章V1.1`, displays as `计算机体系结构 - 第五章V1.1`.
+
+The audit fetched slide images from `yangtse-pri-ups.yuketang.cn` over CORS with HTTP 200 and JPEG signature bytes `ff d8 ff e0`. One deck merged successfully into a 104-page PDF. These observations cover the audited Changjiang session and CDN responses.
 
 ---
 

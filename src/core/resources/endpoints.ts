@@ -57,8 +57,8 @@ export const RESOURCE_ENDPOINT_SPECS: readonly ResourceEndpointSpec[] = [
     scope: 'courses',
     method: 'GET',
     branches: ALL_BRANCHES,
-    verifiedOn: [],
-    experimental: true,
+    verifiedOn: ['changjiang.yuketang.cn'],
+    experimental: false,
     sourceRef: 'powercess/yuketang-mcp & siye4366/xxt-Tool',
     notes: 'Returns course_id, free_sku_id, uv_id, and class_end (role=5).',
   },
@@ -79,8 +79,8 @@ export const RESOURCE_ENDPOINT_SPECS: readonly ResourceEndpointSpec[] = [
     scope: 'chapters',
     method: 'GET',
     branches: ALL_BRANCHES,
-    verifiedOn: [],
-    experimental: true,
+    verifiedOn: ['changjiang.yuketang.cn'],
+    experimental: false,
     sourceRef: 'powercess/yuketang-mcp',
     notes: 'Preferred chapter/leaf progress tree (course_progress[].section_leaf_list[]); requires xtbz: ykt.',
   },
@@ -123,8 +123,8 @@ export const RESOURCE_ENDPOINT_SPECS: readonly ResourceEndpointSpec[] = [
     scope: 'slides',
     method: 'GET',
     branches: ALL_BRANCHES,
-    verifiedOn: [],
-    experimental: true,
+    verifiedOn: ['changjiang.yuketang.cn'],
+    experimental: false,
     sourceRef: 'powercess/yuketang-mcp',
     notes: 'Returns presentations[] list (id, title, cover, slidesCount) for a lesson_id.',
   },
@@ -134,8 +134,8 @@ export const RESOURCE_ENDPOINT_SPECS: readonly ResourceEndpointSpec[] = [
     scope: 'slides',
     method: 'GET',
     branches: ALL_BRANCHES,
-    verifiedOn: [],
-    experimental: true,
+    verifiedOn: ['changjiang.yuketang.cn'],
+    experimental: false,
     sourceRef: 'powercess/yuketang-mcp',
     notes: 'Returns full ordered slides[] with 1-based index and CDN cover image URL.',
   },
@@ -156,8 +156,8 @@ export const RESOURCE_ENDPOINT_SPECS: readonly ResourceEndpointSpec[] = [
     scope: 'announcements',
     method: 'GET',
     branches: ALL_BRANCHES,
-    verifiedOn: [],
-    experimental: true,
+    verifiedOn: ['changjiang.yuketang.cn'],
+    experimental: false,
     sourceRef: 'powercess/yuketang-mcp',
     notes: 'Classroom announcements (cid, limit, offset, type=9).',
   },
@@ -178,7 +178,7 @@ const SPEC_BY_ID = new Map<string, ResourceEndpointSpec>(
   RESOURCE_ENDPOINT_SPECS.map(spec => [spec.id, spec]),
 );
 
-function makeCandidate(specId: string, path: string): ResourceEndpointCandidate {
+function makeCandidate(specId: string, path: string, hostname?: string): ResourceEndpointCandidate {
   const spec = SPEC_BY_ID.get(specId);
   if (!spec) throw new Error(`Unknown resource endpoint spec: ${specId}`);
   return {
@@ -186,54 +186,59 @@ function makeCandidate(specId: string, path: string): ResourceEndpointCandidate 
     label: spec.label,
     path,
     scope: spec.scope,
-    experimental: spec.experimental,
+    experimental: hostname ? !spec.verifiedOn.includes(hostname) : spec.experimental,
   };
 }
 
-export function courseResourceEndpoints(): ResourceEndpointCandidate[] {
+export function courseResourceEndpoints(hostname?: string): ResourceEndpointCandidate[] {
   return [
-    makeCandidate('courses-v2-list', '/v2/api/web/courses/list?identity=2'),
-    makeCandidate('courses-mooc-user', '/mooc-api/v1/lms/user/user-courses/?status=1&page=1&page_size=50'),
+    makeCandidate('courses-v2-list', '/v2/api/web/courses/list?identity=2', hostname),
+    makeCandidate('courses-mooc-user', '/mooc-api/v1/lms/user/user-courses/?status=1&page=1&page_size=50', hostname),
   ];
 }
 
-export function learnLogEndpoint(classroomId: string, page = 0, pageSize = 50): ResourceEndpointCandidate {
+export function learnLogEndpoint(classroomId: string, page = 0, pageSize = 50, hostname?: string): ResourceEndpointCandidate {
   const safePage = Math.max(0, Math.floor(page));
   const safeSize = Math.min(200, Math.max(1, Math.floor(pageSize)));
   return makeCandidate(
     'learn-logs-v2',
     `/v2/api/web/logs/learn/${encodeURIComponent(classroomId)}?actype=-1&page=${safePage}&offset=${safeSize}&sort=-1`,
+    hostname,
   );
 }
 
-export function chapterEndpoints(classroomId: string, courseId: string): ResourceEndpointCandidate[] {
+export function chapterEndpoints(classroomId: string, courseId: string, hostname?: string): ResourceEndpointCandidate[] {
   const cid = encodeURIComponent(courseId);
   const classId = encodeURIComponent(classroomId);
   return [
     makeCandidate(
       'course-progress-c27',
       `/c27/online_courseware/schedule/course/progress/?classroom_id=${classId}&course_id=${cid}`,
+      hostname,
     ),
     makeCandidate(
       'course-chapter-mooc',
       `/mooc-api/v1/lms/learn/course/chapter?cid=${cid}&classroom_id=${classId}`,
+      hostname,
     ),
   ];
 }
 
-export function lessonSummaryEndpoint(lessonId: string): ResourceEndpointCandidate {
+export function lessonSummaryEndpoint(lessonId: string, hostname?: string): ResourceEndpointCandidate {
   return makeCandidate(
     'lesson-summary-v3',
     `/api/v3/lesson-summary/student?lesson_id=${encodeURIComponent(lessonId)}`,
+    hostname,
   );
 }
 
-export function presentationSlidesEndpoint(presentationId: string, lessonId?: string): ResourceEndpointCandidate {
+export function presentationSlidesEndpoint(presentationId: string, lessonId?: string, hostname?: string): ResourceEndpointCandidate {
   const params = new URLSearchParams({ presentation_id: presentationId });
   if (lessonId) params.set('lesson_id', lessonId);
   return makeCandidate(
     'lesson-presentation-v3',
     `/api/v3/lesson-summary/student/presentation?${params.toString()}`,
+    hostname,
   );
 }
 
@@ -244,13 +249,14 @@ export function coursewareCardsEndpoint(coursewareId: string, classroomId: strin
   );
 }
 
-export function announcementEndpoints(classroomId: string, limit = 20, offset = 0): ResourceEndpointCandidate[] {
+export function announcementEndpoints(classroomId: string, limit = 20, offset = 0, hostname?: string): ResourceEndpointCandidate[] {
   const safeLimit = Math.min(100, Math.max(1, Math.floor(limit)));
   const safeOffset = Math.max(0, Math.floor(offset));
   return [
     makeCandidate(
       'discussion-announcements-v2',
       `/v/discussion/v2/announcements/?cid=${encodeURIComponent(classroomId)}&limit=${safeLimit}&offset=${safeOffset}&type=9`,
+      hostname,
     ),
   ];
 }

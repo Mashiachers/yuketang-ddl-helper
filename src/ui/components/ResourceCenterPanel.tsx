@@ -466,20 +466,20 @@ export function ResourceCenterPanel({ app, rc }: ResourceCenterPanelProps) {
               onChange={e => rc.setSearchQuery(e.target.value)}
             />
           </div>
-          <select
-            aria-label="按课程筛选资源"
-            className="ykt-select"
-            value={rc.selectedCourseId}
-            onChange={e => rc.setSelectedCourseId(e.target.value)}
-          >
-            <option value="all">全部课程 ({rc.courses.length})</option>
-            {rc.courses.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({courseCounts.get(c.id) ?? 0})
-              </option>
-            ))}
-          </select>
         </div>
+        <select
+          aria-label="按课程筛选资源"
+          className="ykt-select ykt-res-course-select"
+          value={rc.selectedCourseId}
+          onChange={e => rc.setSelectedCourseId(e.target.value)}
+        >
+          <option value="all">全部课程 ({rc.courses.length})</option>
+          {rc.courses.map(c => (
+            <option key={c.id} value={c.id}>
+              {c.name} ({courseCounts.get(c.id) ?? 0})
+            </option>
+          ))}
+        </select>
 
         <div className="ykt-res-pills" role="group" aria-label="按资源类型筛选">
           <button

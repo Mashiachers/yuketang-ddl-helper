@@ -322,7 +322,7 @@ export function SettingsPanel({
                   <button
                     type="button"
                     className="ykt-link-btn"
-                    disabled={rc.loading}
+                    disabled={rc.loading || rc.clearingIndex}
                     onClick={() => void rc.refreshResources(true)}
                   >
                     <RefreshIcon size={12} className={rc.loading ? 'ykt-spin' : undefined} /> 刷新资源探测
@@ -341,6 +341,24 @@ export function SettingsPanel({
                     <span className="ykt-tag">同步于 {formatDateTime(Date.parse(rc.syncedAt))}</span>
                   )}
                 </div>
+
+                <button
+                  type="button"
+                  className="ykt-btn ykt-btn-secondary ykt-btn-sm"
+                  disabled={rc.loading || rc.clearingIndex || rc.busyMode !== null}
+                  onClick={() => {
+                    if (window.confirm('清空当前站点和模式的资源索引及下载记录？已保存的文件会保留。')) {
+                      void rc.clearResourceIndex();
+                    }
+                  }}
+                >
+                  {rc.clearingIndex ? '正在清空…' : '清空资源索引'}
+                </button>
+                {rc.notice && (
+                  <div className={`ykt-banner ${rc.notice.tone}`} role="status">
+                    {rc.notice.text}
+                  </div>
+                )}
 
                 {rc.diagnostics.length > 0 ? (
                   <table className="ykt-diag-table tabular" style={{ marginTop: 8 }}>

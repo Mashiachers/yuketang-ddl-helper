@@ -125,6 +125,14 @@ export async function saveResourceIndex(index: CourseResourceIndex): Promise<voi
   memory.set(key, value);
 }
 
+export async function clearResourceIndex(origin: string, sourcePlatform: string): Promise<void> {
+  const key = storageKey(origin, sourcePlatform);
+  const area = globalThis.chrome?.storage?.local;
+  if (area) await area.remove(key);
+  else globalThis.localStorage?.removeItem(key);
+  memory.delete(key);
+}
+
 function sourceChanged(material: CourseMaterial, record: DownloadRecord): boolean {
   return Boolean(
     (material.updatedAt && material.updatedAt !== record.sourceUpdatedAt) ||

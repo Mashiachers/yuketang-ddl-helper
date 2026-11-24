@@ -11,6 +11,7 @@ import type {
 import {
   buildExportFiles,
   buildZipArchive,
+  clearResourceIndex,
   createDemoFileBytes,
   createDemoResourceDiscovery,
   createDownloadService,
@@ -85,6 +86,7 @@ interface SyncContextHolder {
 
 export function createBrowserResourceBackend(): ResourceCenterBackend {
   const services = new Map<string, { service: ResourceService; ctx: SyncContextHolder }>();
+  const pendingSyncs = new Map<ResourceService, Promise<ResourceDiscoveryResult>>();
   let indexWriteQueue = Promise.resolve();
   let lastOrigin = resolveOrigin();
   let lastPlatformLabel = '雨课堂';
@@ -165,10 +167,16 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
       lastOrigin = resolveOrigin(req.platform.origin);
       lastPlatformLabel = req.platform.label;
       const service = getService(req.platform, req.useDemoMode, req);
-      return service.syncResources({
+      const sync = service.syncResources({
         signal: req.signal,
         onProgress: req.onProgress,
       });
+      pendingSyncs.set(service, sync);
+      try {
+        return await sync;
+      } finally {
+        if (pendingSyncs.get(service) === sync) pendingSyncs.delete(service);
+      }
     },
 
     async downloadSingle(req: ResourceDownloadSingleRequest): Promise<DownloadItemResult> {
@@ -319,6 +327,20 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
         triggerBrowserDownload(zipBytes, filename, 'application/zip');
       }
       return { filename, manifest, bytesLength: zipBytes.length };
+    },
+
+    async clearResourceIndex(platform: PlatformInfo, useDemoMode: boolean): Promise<void> {
+      const sourcePlatform = useDemoMode ? 'demo' : platform.label;
+      const key = `${platform.origin}::${sourcePlatform}`;
+      const service = services.get(key)?.service;
+      const pendingSync = service && pendingSyncs.get(service);
+      const op = indexWriteQueue.then(async () => {
+        await pendingSync?.catch(() => {});
+        await clearResourceIndex(resolveOrigin(platform.origin), sourcePlatform);
+        services.delete(key);
+      });
+      indexWriteQueue = op.then(() => {}, () => {});
+      await op;
     },
 
     async getSyncStatus(platform: PlatformInfo, useDemoMode: boolean): Promise<SyncStatusReport | null> {

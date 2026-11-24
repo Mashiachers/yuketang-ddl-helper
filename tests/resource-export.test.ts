@@ -5,7 +5,7 @@ import { createDemoFileBytes, createDemoResourceDiscovery } from '../src/core/re
 import { createDownloadService } from '../src/core/resources/downloadService';
 import { buildExportFiles, exportAsZip } from '../src/core/resources/exportService';
 import type { ExportBuildInput } from '../src/core/resources/exportService';
-import { computeSha256Hex, loadResourceIndex, reconcileMaterialsWithIndex, recordDownloadOutcome, saveResourceIndex } from '../src/core/resources/indexStore';
+import { clearResourceIndex, computeSha256Hex, loadResourceIndex, reconcileMaterialsWithIndex, recordDownloadOutcome, saveResourceIndex } from '../src/core/resources/indexStore';
 import { buildSafeRelativePath, deduplicateFilename, sanitizeFilename } from '../src/core/resources/naming';
 import { buildPdfFromJpegPages, mergeSlideImagesToPdf } from '../src/core/resources/pdf';
 import { createResourceService } from '../src/core/resources/resourceService';
@@ -114,6 +114,45 @@ describe('PDF image embedding', () => {
 });
 
 describe('incremental index', () => {
+  it.each(['chrome', 'localStorage', 'memory'])('clears only the requested index in %s storage', async storage => {
+    const entries = new Map<string, unknown>();
+    vi.stubGlobal('chrome', storage === 'chrome' ? { storage: { local: {
+      get: async (key: string) => ({ [key]: entries.get(key) }),
+      set: async (values: Record<string, unknown>) => {
+        for (const [key, value] of Object.entries(values)) entries.set(key, value);
+      },
+      remove: async (key: string) => entries.delete(key),
+    } } } : undefined);
+    vi.stubGlobal('localStorage', storage === 'localStorage' ? {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => entries.set(key, value),
+      removeItem: (key: string) => entries.delete(key),
+    } : undefined);
+
+    const origin = `https://reset-${storage.toLowerCase()}.yuketang.cn`;
+    const otherOrigin = 'https://reset-other.yuketang.cn';
+    for (const [site, mode] of [[origin, 'live'], [origin, 'demo'], [otherOrigin, 'live']]) {
+      const index = await loadResourceIndex(site, mode);
+      const populated = recordDownloadOutcome(index, {
+        material: liveMaterial, status: 'downloaded', filename: 'lecture.pdf',
+      });
+      await saveResourceIndex({ ...populated, lastSyncedAt: new Date(now).toISOString() });
+    }
+
+    expect((await loadResourceIndex(origin, 'live')).records).toHaveProperty(liveMaterial.resourceKey);
+    await clearResourceIndex(`${origin}/some-page`, 'live');
+    await clearResourceIndex(origin, 'live');
+    expect(await loadResourceIndex(origin, 'live')).toMatchObject({
+      lastSyncedAt: '', knownResourceKeys: [], records: {},
+    });
+    expect((await loadResourceIndex(origin, 'demo')).knownResourceKeys).toEqual([liveMaterial.resourceKey]);
+    expect((await loadResourceIndex(otherOrigin, 'live')).knownResourceKeys).toEqual([liveMaterial.resourceKey]);
+    await clearResourceIndex(origin, 'demo');
+    expect((await loadResourceIndex(origin, 'demo')).records).toEqual({});
+    await clearResourceIndex(otherOrigin, 'live');
+    expect(entries.size).toBe(0);
+  });
+
   it('hashes the byte view, deduplicates only within a stable resource, and detects changed source metadata', async () => {
     const bytes = encoder.encode('_abc_').subarray(1, 4);
     const checksum = await computeSha256Hex(bytes);

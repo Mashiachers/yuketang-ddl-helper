@@ -355,6 +355,13 @@ function inferMimeFromExtension(ext: string | undefined): string | undefined {
   }
 }
 
+export function cleanDisplayTitle(raw: string): string {
+  return raw
+    .replace(/\+-+\+/g, ' - ')
+    .replace(/(?<=\p{Script=Han})\+(?=[\p{L}\p{N}])|(?<=[\p{L}\p{N}])\+(?=\p{Script=Han})/gu, ' ')
+    .trim();
+}
+
 function inferMaterialType(input: {
   explicitType?: unknown;
   rawType?: string | number;
@@ -367,6 +374,7 @@ function inferMaterialType(input: {
 }): MaterialType {
   if (input.defaultType === 'announcement_attachment') return 'announcement_attachment';
   if (input.hasSlideImages) return 'image_slides';
+  if (input.leafType === 8) return 'slides';
 
   const explicit = typeof input.explicitType === 'string' ? input.explicitType.trim().toLowerCase() : '';
   if (explicit === 'announcement_attachment') return 'announcement_attachment';
@@ -422,7 +430,7 @@ function inferMaterialType(input: {
   if (input.rawType === 2 || input.rawType === '2' || input.rawType === 14 || input.rawType === '14') {
     return 'slides';
   }
-  if (input.leafType === 3 || input.leafType === 7 || input.leafType === 8) return 'document';
+  if (input.leafType === 3 || input.leafType === 7) return 'document';
   if (
     input.rawType === 10 ||
     input.rawType === '10' ||
@@ -833,13 +841,15 @@ function normalizeMaterialRow(
   const downloadStatus: DownloadStatus =
     !isLocked && (downloadUrl || slideImages.length > 0) ? 'not_downloaded' : 'unavailable';
 
+  const coursewareId = firstString(row, 'courseware_id', 'coursewareId') || firstString(contentObj ?? {}, 'courseware_id');
+  const leafLessonId = leafType === 8 ? String(firstValue(row, 'leafinfo_id') || id) : '';
   const metadata = sanitizeMetadata({
     rawType: rawType !== undefined ? rawType : undefined,
     leafType,
-    coursewareId: firstString(row, 'courseware_id', 'coursewareId') || firstString(contentObj ?? {}, 'courseware_id') || undefined,
+    coursewareId: coursewareId || undefined,
     lessonId:
-      firstString(row, 'lesson_id', 'lessonId') ||
-      (rawType === 14 || rawType === '14' ? firstString(row, 'courseware_id', 'id') : '') ||
+      leafLessonId || firstString(row, 'lesson_id', 'lessonId') ||
+      (rawType === 14 || rawType === '14' ? coursewareId || id : '') ||
       undefined,
     presentationId: firstString(row, 'presentation_id', 'presentationId') || undefined,
     slidesCount,
@@ -1515,6 +1525,7 @@ export async function discoverCourseResources(
   }
 
   const syncedAt = new Date().toISOString();
+  const hostname = new URL(platform.origin).hostname;
   const diagnostics: ResourceEndpointDiagnostic[] = [];
 
   if (options.signal?.aborted) {
@@ -1553,7 +1564,7 @@ export async function discoverCourseResources(
     let courseError: ResourceErrorCode = 'not-found';
     let courseEndpointSucceeded = false;
 
-    for (const candidate of courseResourceEndpoints()) {
+    for (const candidate of courseResourceEndpoints(hostname)) {
       const res = await fetchWithTimeoutAndRetry(new URL(candidate.path, platform.origin), {
         headers: buildRequestHeaders(platform, cookie),
         fetchImpl,
@@ -1639,14 +1650,16 @@ export async function discoverCourseResources(
     const classroomId = course.classroomId || course.id;
     const headers = buildRequestHeaders(platform, cookie, classroomId);
     let anyCourseSuccess = false;
+    const logLessonKeys = new Map<string, string>();
 
     // 2A. Paginated learn logs.
     const allLogRows: Row[] = [];
     const seenPageSignatures = new Set<string>();
     let logUnauthorized = false;
+    const firstLogCandidate = learnLogEndpoint(classroomId, 0, pageSize, hostname);
 
     for (let page = 0; page < maxPages; page++) {
-      const candidate = learnLogEndpoint(classroomId, page, pageSize);
+      const candidate = page === 0 ? firstLogCandidate : learnLogEndpoint(classroomId, page, pageSize, hostname);
       const res = await fetchWithTimeoutAndRetry(new URL(candidate.path, platform.origin), {
         headers,
         fetchImpl,
@@ -1686,10 +1699,17 @@ export async function discoverCourseResources(
     }
 
     if (allLogRows.length > 0) {
-      const courseMaterials = normalizeCourseMaterials(allLogRows, course, platform.origin, { experimental: false });
+      const courseMaterials = normalizeCourseMaterials(allLogRows, course, platform.origin, {
+        experimental: firstLogCandidate.experimental,
+      });
       for (const mat of courseMaterials) {
         const prev = materialsMap.get(mat.resourceKey);
         materialsMap.set(mat.resourceKey, prev ? mergeMaterials(prev, mat) : mat);
+        if ((mat.type === 'slides' || mat.type === 'image_slides') && String(mat.metadata?.rawType) === '14') {
+          for (const id of [mat.metadata?.lessonId, mat.metadata?.coursewareId]) {
+            if (typeof id === 'string' && !logLessonKeys.has(id)) logLessonKeys.set(id, mat.resourceKey);
+          }
+        }
       }
 
       for (const ann of normalizeAnnouncements(allLogRows, course, platform.origin)) {
@@ -1715,9 +1735,9 @@ export async function discoverCourseResources(
 
     if (taskSignal?.aborted || sawCancelled) return;
 
-    // 2B. Experimental chapter / progress tree discovery (non-fatal).
+    // 2B. Chapter / progress tree discovery (non-fatal).
     if (!logUnauthorized) {
-      for (const candidate of chapterEndpoints(classroomId, course.id)) {
+      for (const candidate of chapterEndpoints(classroomId, course.id, hostname)) {
         const res = await fetchWithTimeoutAndRetry(new URL(candidate.path, platform.origin), {
           headers,
           fetchImpl,
@@ -1734,8 +1754,17 @@ export async function discoverCourseResources(
           });
           recordDiagnostic(diagnostics, candidate, res, chapterMaterials.length);
           for (const mat of chapterMaterials) {
-            const prev = materialsMap.get(mat.resourceKey);
-            materialsMap.set(mat.resourceKey, prev ? mergeMaterials(prev, mat) : mat);
+            const lessonId = mat.metadata?.lessonId;
+            const logKey = mat.metadata?.leafType === 8 && typeof lessonId === 'string'
+              ? logLessonKeys.get(lessonId)
+              : undefined;
+            const key = logKey ?? mat.resourceKey;
+            const prev = materialsMap.get(key);
+            const merged = prev ? mergeMaterials(prev, mat) : mat;
+            if (logKey && merged.metadata && prev?.metadata?.lessonId !== undefined) {
+              merged.metadata.lessonId = prev.metadata.lessonId;
+            }
+            materialsMap.set(key, merged);
           }
           break;
         }
@@ -1754,9 +1783,9 @@ export async function discoverCourseResources(
 
     if (taskSignal?.aborted || sawCancelled) return;
 
-    // 2C. Experimental announcements discovery (non-fatal).
+    // 2C. Announcements discovery (non-fatal).
     if (!logUnauthorized) {
-      for (const candidate of announcementEndpoints(classroomId)) {
+      for (const candidate of announcementEndpoints(classroomId, 20, 0, hostname)) {
         const res = await fetchWithTimeoutAndRetry(new URL(candidate.path, platform.origin), {
           headers,
           fetchImpl,
@@ -1792,7 +1821,7 @@ export async function discoverCourseResources(
 
     if (taskSignal?.aborted || sawCancelled) return;
 
-    // 2D. Experimental slide page hydration for discovered presentations/lessons lacking slideImages.
+    // 2D. Slide page hydration for discovered presentations/lessons lacking slideImages.
     if (!logUnauthorized) {
       const courseSlidesNeedingHydration = [...materialsMap.values()].filter(
         m =>
@@ -1814,7 +1843,7 @@ export async function discoverCourseResources(
         if (explicitPresentationId) {
           presentationIds.push({ id: explicitPresentationId });
         } else if (lessonId) {
-          const summaryCandidate = lessonSummaryEndpoint(lessonId);
+          const summaryCandidate = lessonSummaryEndpoint(lessonId, hostname);
           const summaryRes = await fetchWithTimeoutAndRetry(new URL(summaryCandidate.path, platform.origin), {
             headers,
             fetchImpl,
@@ -1841,10 +1870,11 @@ export async function discoverCourseResources(
           }
         }
 
+        let upgradedLesson = false;
         for (let idx = 0; idx < presentationIds.length; idx++) {
           if (taskSignal?.aborted || sawCancelled) return;
           const presEntry = presentationIds[idx];
-          const slideCandidate = presentationSlidesEndpoint(presEntry.id, lessonId);
+          const slideCandidate = presentationSlidesEndpoint(presEntry.id, lessonId, hostname);
           const slideRes = await fetchWithTimeoutAndRetry(new URL(slideCandidate.path, platform.origin), {
             headers,
             fetchImpl,
@@ -1857,21 +1887,25 @@ export async function discoverCourseResources(
             const pages = normalizeSlidePages(slideRes.data, platform.origin);
             recordDiagnostic(diagnostics, slideCandidate, slideRes, pages.length);
             if (pages.length > 0) {
-              const itemId = idx === 0 ? mat.id : `${mat.id}-p${presEntry.id}`;
+              const itemId = upgradedLesson ? `${mat.id}-p${presEntry.id}` : mat.id;
               const nextKey = buildMaterialKey(mat.courseId, 'image_slides', itemId);
+              const lessonTitle = cleanDisplayTitle(mat.title);
+              const presentationTitle = cleanDisplayTitle(stripHtmlToText(presEntry.title ?? ''));
               const upgraded: CourseMaterial = {
                 ...mat,
                 id: itemId,
                 resourceKey: nextKey,
-                title: idx === 0 ? mat.title : presEntry.title || `${mat.title} (${idx + 1})`,
+                title: presentationTitle || (upgradedLesson ? `${lessonTitle} (${idx + 1})` : lessonTitle),
+                chapterTitle: mat.chapterTitle || (presentationTitle && !presentationTitle.includes(lessonTitle) ? lessonTitle : undefined),
                 type: 'image_slides',
                 slideImages: pages,
                 downloadStatus: 'not_downloaded',
-                experimental: true,
+                experimental: slideCandidate.experimental,
                 metadata: sanitizeMetadata({ ...mat.metadata, presentationId: presEntry.id, slidesCount: pages.length }),
               };
-              if (idx === 0) materialsMap.delete(mat.resourceKey);
+              if (!upgradedLesson) materialsMap.delete(mat.resourceKey);
               materialsMap.set(nextKey, upgraded);
+              upgradedLesson = true;
             }
           } else {
             recordDiagnostic(diagnostics, slideCandidate, slideRes);

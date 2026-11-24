@@ -752,6 +752,11 @@
   padding-right: 24px;
 }
 
+.ykt-select.ykt-res-course-select {
+  width: 100%;
+  max-width: 100%;
+}
+
 .ykt-toolbar-row {
   display: flex;
   align-items: center;

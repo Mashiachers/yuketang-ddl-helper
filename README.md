@@ -4,7 +4,7 @@
 
 一款开源、纯本地、零外部服务器依赖的 Chrome / Edge Manifest V3 浏览器插件。帮助你一站式聚合雨课堂全课程待办作业与课程资源，打通 **RFC 5545 多级提醒日历（`.ics`）**、**课程知识库 / NotebookLM / AI Context Pack 导出** 与 **结构化 AI Prompt 工作流**。
 
-> **当前版本**：`v0.2.0-beta`（Resource Export & AI-Ready Data Foundation）。已在**长江雨课堂**验证基础课程/作业接口，新增课程资源与多分支端点标注了 `experimental`，欢迎不同高校分支的同学内测反馈。
+> **当前版本**：`v0.2.0-beta`（Resource Export & AI-Ready Data Foundation）。截至 2026-11-25，已在**长江雨课堂**实测 7 个接口，涵盖课程、学习日志、章节进度、课件和公告，并完成 104 页图片课件的 PDF 合并。
 
 ---
 
@@ -21,6 +21,7 @@
 - **单文件与批量下载**：支持按课程/类型筛选、搜索、实时进度显示、随时取消与失败重试；多文件批量下载自动打包为安全 ZIP。
 - **图片课件无损合并 PDF**：纯 TypeScript PDF 1.4 引擎，按原始幻灯片页序直接嵌入原图 JPEG（零依赖、不降低清晰度）。
 - **安全命名与增量索引**：跨平台中文安全文件名、路径穿越防护、Windows 保留设备名防护、可执行/脚本后缀惰性化（`.download`），并通过本地 `SHA-256` 索引实现新增标记、变更提示与跳过已下载。
+- **换账号时清理索引**：打开「设置 → 高级与诊断 → 课程资源索引与接口诊断」，点击「清空资源索引」。此操作清除当前站点及当前模式的本地索引和下载记录，已保存的文件会保留。
 
 ### 3. AI 工作流中心（v0.2 新增）
 选择课程 → 选择导出模式 → 下载资料包 → 交给任意大模型 / NotebookLM / Obsidian / AI Agent：
@@ -36,13 +37,15 @@
 
 | 雨课堂分支 | 域名 | 课程与作业 DDL | 课程资源发现（章节/幻灯片/公告） |
 | :--- | :--- | :--- | :--- |
-| 长江雨课堂 | `changjiang.yuketang.cn` | 已实盘验证 | 部分基础日志已验证，扩展资源端点为 `experimental`（待真实账号验证） |
+| 长江雨课堂 | `changjiang.yuketang.cn` | 已实盘验证 | 已实测章节进度、课次摘要、幻灯片明细及公告 |
 | 雨课堂主站 | `www.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎内测反馈） |
 | 荷塘雨课堂 | `pro.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎内测反馈） |
 | 黄河雨课堂 | `huanghe.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎内测反馈） |
 | 其他高校定制分支 | `*.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎提 Issue 附脱敏样本） |
 
-详细接口调研与开源参考审计见 [API_RESEARCH.md](docs/agent-workflow/reports/API_RESEARCH.md)。
+长江雨课堂已实测 `courses-v2-list`、`classroom-detail-v2`、`learn-logs-v2`、`course-progress-c27`、`lesson-summary-v3`、`lesson-presentation-v3` 与 `discussion-announcements-v2`。实测中，`yangtse-pri-ups.yuketang.cn` 通过 CORS 返回 `200 OK` 和 JPEG 原图。
+
+`courses-mooc-user`、`course-chapter-mooc`、`courseware-pub-news`、`leaf-info-mooc`、`cards-detlist-v2` 和 `course-homework-v2` 仍标记为 `experimental: true`。其中 MOOC 章节接口在长江雨课堂返回 HTTP 400。详见 [API_RESEARCH.md](docs/agent-workflow/reports/API_RESEARCH.md)。
 
 ---
 

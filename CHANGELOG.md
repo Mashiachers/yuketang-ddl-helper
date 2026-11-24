@@ -4,6 +4,13 @@ All notable changes to **Yuketang DDL Helper** are documented in this file.
 
 ## [0.2.0-beta] — 2026-11-24
 
+### Changjiang live calibration (2026-11-25)
+
+- The authenticated audit verified five endpoints on `changjiang.yuketang.cn`: `classroom-detail-v2`, `course-progress-c27`, `lesson-summary-v3`, `lesson-presentation-v3`, and `discussion-announcements-v2`. Together with the previously verified `courses-v2-list` and `learn-logs-v2`, this brings the total to seven. The slide CDN `yangtse-pri-ups.yuketang.cn` served JPEGs over CORS with HTTP 200, and the audit merged a 104-page deck into a PDF.
+- Six endpoint specs remain experimental: `courses-mooc-user`, `course-chapter-mooc`, `courseware-pub-news`, `leaf-info-mooc`, `cards-detlist-v2`, and `course-homework-v2`. The MOOC chapter request returned HTTP 400 on Changjiang. Probes on other hosts carry experimental diagnostics.
+- Merge classroom lesson leaves (`leaf_type: 8`) with their learn-log lesson and use the cleaned presentation title when slides are available. The course selector now has a full-width row.
+- Add a confirmed reset for the current site's local resource index and download history in Settings.
+
 ### Added
 - **Unified Course Resource Data Model (`schemaVersion: "0.2.0"`)**: Added API-decoupled domain entities (`Course`, `CourseMaterial`, `Assignment`, `Exam`, `Announcement`, `CourseResourceIndex`, `DownloadRecord`, `ExportManifest`, `CourseProvider`) ready for future MCP Servers and CLIs.
 - **Course Resource Discovery Adapter (`src/core/resources/adapter.ts`, `endpoints.ts`)**:
@@ -27,7 +34,7 @@ All notable changes to **Yuketang DDL Helper** are documented in this file.
   - Expanded Settings diagnostics with resource index status and `experimental` endpoint badges.
   - Upgraded offline Demo Mode to support end-to-end resource browsing, PDF merging, and all 5 export modes without login.
 - **Testing & Multi-Agent Engineering Docs**:
-  - Added 87 new unit, adapter, export, and adversarial QA/security tests (109 total tests).
+  - Added 97 unit, adapter, export, and adversarial QA/security tests (119 total tests after calibration).
   - Added `AGENTS.md`, `GEMINI.md`, architecture/contracts/ADR docs, `API_RESEARCH.md`, `TEST_PLAN.md`, `SECURITY_REVIEW.md`, `FINAL_REVIEW.md`, `docs/JSON_SCHEMA.md`, and `docs/RESOURCE_EXPORT_GUIDE.md`.
 
 ### Security & Privacy

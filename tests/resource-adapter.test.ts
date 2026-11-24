@@ -3,6 +3,7 @@ import type { Course, HomeworkItem } from '../src/types';
 import { detectPlatform } from '../src/core/platform/detector';
 import {
   buildMaterialKey,
+  cleanDisplayTitle,
   discoverCourseResources,
   fetchWithTimeoutAndRetry,
   mapHomeworkToDomain,
@@ -14,6 +15,7 @@ import {
   sanitizeResourceUrl,
   stripHtmlToText,
 } from '../src/core/resources/adapter';
+import { presentationSlidesEndpoint } from '../src/core/resources/endpoints';
 import {
   MOCK_ANNOUNCEMENTS_V2_PAYLOAD,
   MOCK_CHAPTER_MOOC_PAYLOAD,
@@ -48,16 +50,38 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('RESOURCE_ENDPOINT_SPECS metadata', () => {
-  it('marks only v0.1 live-verified endpoints as non-experimental and keeps all labels free of private IDs', () => {
+  it('marks the seven Changjiang live-verified endpoints and keeps all labels free of private IDs', () => {
     const verified = RESOURCE_ENDPOINT_SPECS.filter(spec => !spec.experimental);
     const experimental = RESOURCE_ENDPOINT_SPECS.filter(spec => spec.experimental);
 
-    expect(verified.map(spec => spec.id).sort()).toEqual(['courses-v2-list', 'learn-logs-v2']);
-    expect(verified.every(spec => spec.verifiedOn.includes('changjiang.yuketang.cn'))).toBe(true);
-    expect(experimental.length).toBeGreaterThanOrEqual(8);
+    expect(verified.map(spec => spec.id).sort()).toEqual([
+      'classroom-detail-v2', 'course-progress-c27', 'courses-v2-list', 'discussion-announcements-v2',
+      'learn-logs-v2', 'lesson-presentation-v3', 'lesson-summary-v3',
+    ]);
+    expect(verified.map(spec => spec.verifiedOn)).toEqual(verified.map(() => ['changjiang.yuketang.cn']));
+    expect(experimental.map(spec => spec.id).sort()).toEqual([
+      'cards-detlist-v2', 'course-chapter-mooc', 'course-homework-v2',
+      'courses-mooc-user', 'courseware-pub-news', 'leaf-info-mooc',
+    ]);
     expect(experimental.every(spec => spec.verifiedOn.length === 0)).toBe(true);
     expect(RESOURCE_ENDPOINT_SPECS.every(spec => spec.method === 'GET')).toBe(true);
     expect(RESOURCE_ENDPOINT_SPECS.every(spec => !/\d{4,}/.test(spec.label))).toBe(true);
+  });
+
+  it('keeps presentation probes experimental on hosts without live verification', () => {
+    expect(presentationSlidesEndpoint('presentation', 'lesson', 'changjiang.yuketang.cn').experimental).toBe(false);
+    expect(presentationSlidesEndpoint('presentation', 'lesson', 'www.yuketang.cn').experimental).toBe(true);
+  });
+});
+
+describe('cleanDisplayTitle', () => {
+  it.each([
+    ['计算机体系结构+-+第五章V1.1', '计算机体系结构 - 第五章V1.1'],
+    ['第一章+绪论+V1.0', '第一章 绪论 V1.0'],
+    ['C+++-+A+B', 'C++ - A+B'],
+    ['C++', 'C++'],
+  ])('cleans %s into %s', (raw, expected) => {
+    expect(cleanDisplayTitle(raw)).toBe(expected);
   });
 });
 
@@ -480,7 +504,7 @@ describe('discoverCourseResources end-to-end discovery', () => {
       type: 'image_slides',
       resourceKey: 'course-1001:image_slides:act-slide-1',
       downloadStatus: 'not_downloaded',
-      experimental: true,
+      experimental: false,
     });
     expect(hydratedSlide?.slideImages).toHaveLength(2);
 
@@ -502,8 +526,67 @@ describe('discoverCourseResources end-to-end discovery', () => {
     const diagJson = JSON.stringify(result.diagnostics);
     expect(diagJson).not.toMatch(/top-secret-session|top-secret-csrf|cls-1001|course-1001|pres-201/);
     expect(result.diagnostics.some(d => d.endpoint === '/v2/api/web/logs/learn/{classroom_id}' && !d.experimental)).toBe(true);
-    expect(result.diagnostics.some(d => d.endpoint === '/api/v3/lesson-summary/student/presentation' && d.experimental)).toBe(true);
+    expect(result.diagnostics.some(d => d.endpoint === '/api/v3/lesson-summary/student/presentation' && !d.experimental)).toBe(true);
   });
+
+  it.each(['lesson_id', 'courseware_id'] as const)(
+    'merges a c27 classroom leaf into the learn-log lesson via %s before hydrating its slides',
+    async matchField => {
+      const leaf = { id: 8100, leafinfo_id: 1414, leaf_type: 8, name: '9月10日授课（2）' };
+      const chapterPayload = {
+        success: true,
+        data: { course_progress: [{ id: 'chapter-1', name: '计算机体系结构', section_leaf_list: [leaf] }] },
+      };
+      expect(normalizeCourseMaterials(chapterPayload, sampleCourse, TEST_ORIGIN)).toEqual([
+        expect.objectContaining({ type: 'slides', metadata: expect.objectContaining({ lessonId: '1414' }) }),
+      ]);
+      expect(normalizeCourseMaterials([{ ...leaf, leafinfo_id: 0 }], sampleCourse, TEST_ORIGIN)[0].metadata?.lessonId)
+        .toBe('8100');
+
+      const pathRequests: string[] = [];
+      const fetchImpl = vi.fn<typeof fetch>(async input => {
+        const url = new URL(String(input));
+        pathRequests.push(url.pathname + url.search);
+        switch (url.pathname) {
+          case '/v2/api/web/courses/list':
+            return jsonResponse(MOCK_COURSES_V2_PAYLOAD);
+          case '/v2/api/web/logs/learn/cls-1001':
+            return jsonResponse({ errcode: 0, data: { rows: [
+              { id: 1400, type: 14, title: '通信原理', [matchField]: 1414 },
+            ] } });
+          case '/c27/online_courseware/schedule/course/progress/':
+            return jsonResponse(chapterPayload);
+          case '/api/v3/lesson-summary/student':
+            return jsonResponse({ code: 0, data: { presentations: [
+              { id: 'empty-presentation', title: '空课件' },
+              { id: 'pres-201', title: '计算机体系结构+-+第五章V1.1' },
+            ] } });
+          case '/api/v3/lesson-summary/student/presentation':
+            return jsonResponse(url.searchParams.get('presentation_id') === 'pres-201'
+              ? MOCK_PRESENTATION_SLIDES_V3_PAYLOAD
+              : { code: 0, data: { slides: [] } });
+          default:
+            return jsonResponse({}, 404);
+        }
+      });
+
+      const result = await discoverCourseResources(platform, {
+        fetchImpl, courseIds: [sampleCourse.id], intervalMs: 0, maxRetries: 0,
+      });
+      expect(result.materials).toEqual([expect.objectContaining({
+        id: '1400',
+        resourceKey: 'course-1001:image_slides:1400',
+        title: '计算机体系结构 - 第五章V1.1',
+        chapterTitle: '计算机体系结构',
+        type: 'image_slides',
+        experimental: false,
+        downloadStatus: 'not_downloaded',
+        metadata: expect.objectContaining({ lessonId: '1414', presentationId: 'pres-201' }),
+      })]);
+      expect(pathRequests.filter(path => path.startsWith('/api/v3/lesson-summary/student?')))
+        .toEqual(['/api/v3/lesson-summary/student?lesson_id=1414']);
+    },
+  );
 
   it('stops pagination cleanly when the server returns a duplicate page loop', async () => {
     let pageCalls = 0;
