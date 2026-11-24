@@ -53,8 +53,14 @@
 
 ### 方式一：直接下载 Release 安装包（推荐，无需 Node 环境）
 1. 前往 **Releases** 下载 `yuketang-ddl-helper-v0.2.0-beta.zip` 并解压到固定目录。
-2. 浏览器打开 `chrome://extensions/`（Edge 为 `edge://extensions/`），开启右上角 **开发者模式**。
-3. 点击 **加载已解压的扩展程序**，选择解压后的目录（目录内应直接包含 `manifest.json`）。
+2. 浏览器打开 `chrome://extensions/`（Edge 为 `edge://extensions/`），开启右上角 **开发者模式（Developer mode）**。
+
+<img width="766" height="136" alt="image" src="https://github.com/user-attachments/assets/1d4e79ba-af2b-4ef3-bcda-534c526225ea" />
+
+3. 点击 **加载已解压的扩展程序（Load unpacked）**，选择解压后的目录（目录内应直接包含 `manifest.json`）。
+
+<img width="998" height="581" alt="image" src="https://github.com/user-attachments/assets/078bc596-9a6c-4c61-b7ad-61b2101396e6" />
+
 4. 登录任意雨课堂页面即可在右下角看到悬浮入口；未登录时也可在「设置」中开启 **演示模式** 完整体验 DDL、课件合并 PDF 与 5 种 AI 导出模式。
 
 ### 方式二：从源码构建
