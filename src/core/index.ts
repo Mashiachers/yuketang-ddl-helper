@@ -7,4 +7,5 @@ export * from './ics/builder';
 export * from './prompt/formatter';
 export * from './service/ddlService';
 export * from './utils/time';
+export * from './resources';
 export { DEFAULT_SETTINGS, DEFAULT_REMINDERS, clearCache, saveCachedResult } from './storage/storage';

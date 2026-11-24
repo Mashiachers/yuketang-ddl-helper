@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatDateTime, getItemKey, getUrgencyLevel } from '../../core';
 import type { HomeworkItem, UrgencyLevel } from '../../types';
 import type { DdlAppController } from '../hooks/useDdlApp';
+import { EXPORT_MODE_OPTIONS, useResourceCenter } from '../hooks/useResourceCenter';
 import { estimateTokens, formatRelativeTime } from '../utils/format';
+import { AiWorkflowPanel, type AiWorkflowSubTab } from './AiWorkflowPanel';
 import {
   AlertTriangleIcon,
   CalendarIcon,
@@ -10,15 +12,18 @@ import {
   CloseIcon,
   CopyIcon,
   DownloadIcon,
+  FolderIcon,
   LayersIcon,
   MoonIcon,
+  PackageIcon,
   RefreshIcon,
   SearchIcon,
   SettingsIcon,
   SparklesIcon,
+  StopCircleIcon,
   SunIcon,
 } from './Icons';
-import { PromptPanel } from './PromptPanel';
+import { ResourceCenterPanel } from './ResourceCenterPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { TaskCard } from './TaskCard';
 
@@ -34,6 +39,8 @@ const URGENCY_GROUP_META: Record<UrgencyLevel, { title: string; color: string; o
 const PAGE_SIZE = 40;
 
 export function DdlDrawer({ app }: { app: DdlAppController }) {
+  const rc = useResourceCenter(app);
+  const [aiSubTab, setAiSubTab] = useState<AiWorkflowSubTab>('export');
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
@@ -120,6 +127,27 @@ export function DdlDrawer({ app }: { app: DdlAppController }) {
     app.filterTab !== 'all' &&
     otherItemsCount > 0;
 
+  const isHeaderRefreshing =
+    app.view === 'resources'
+      ? rc.loading
+      : app.view === 'prompt'
+        ? app.loading || rc.loading
+        : app.loading;
+
+  const handleHeaderRefresh = () => {
+    if (app.view === 'resources') {
+      void rc.refreshResources(true);
+    } else if (app.view === 'prompt') {
+      void Promise.all([app.syncNow({ force: true }), rc.refreshResources(true)]);
+    } else {
+      void app.syncNow({ force: true });
+    }
+  };
+
+  const activeExportModeMeta =
+    EXPORT_MODE_OPTIONS.find(m => m.id === rc.exportMode) ?? EXPORT_MODE_OPTIONS[0];
+  const resourceNewCount = rc.stats.newCount + rc.stats.updatedCount;
+
   return (
     <>
       <div
@@ -170,13 +198,19 @@ export function DdlDrawer({ app }: { app: DdlAppController }) {
             <button
               type="button"
               className="ykt-icon-btn"
-              title={app.loading ? '正在同步课程作业…' : '强制刷新课程作业'}
-              aria-label="强制刷新课程作业"
-              aria-busy={app.loading}
-              disabled={app.loading}
-              onClick={() => void app.syncNow({ force: true })}
+              title={
+                isHeaderRefreshing
+                  ? '正在同步课程数据…'
+                  : app.view === 'resources'
+                    ? '强制刷新课程资源'
+                    : '强制刷新课程作业与资源'
+              }
+              aria-label="强制刷新课程数据"
+              aria-busy={isHeaderRefreshing}
+              disabled={isHeaderRefreshing}
+              onClick={handleHeaderRefresh}
             >
-              <RefreshIcon size={15} className={app.loading ? 'ykt-spin' : undefined} />
+              <RefreshIcon size={15} className={isHeaderRefreshing ? 'ykt-spin' : undefined} />
             </button>
             <button
               type="button"
@@ -200,10 +234,22 @@ export function DdlDrawer({ app }: { app: DdlAppController }) {
           </button>
           <button
             type="button"
+            className={`ykt-tab${app.view === 'resources' ? ' active' : ''}`}
+            onClick={() => app.setView('resources')}
+          >
+            <FolderIcon size={14} /> 课程资源
+            {resourceNewCount > 0 && (
+              <span className="ykt-tab-badge tabular" aria-label={`${resourceNewCount} 项新增或更新`}>
+                {resourceNewCount > 99 ? '99+' : resourceNewCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
             className={`ykt-tab${app.view === 'prompt' ? ' active' : ''}`}
             onClick={() => app.setView('prompt')}
           >
-            <SparklesIcon size={14} /> AI 打包
+            <SparklesIcon size={14} /> AI 工作流
           </button>
           <button
             type="button"
@@ -481,8 +527,11 @@ export function DdlDrawer({ app }: { app: DdlAppController }) {
             </>
           )}
 
-          {app.view === 'prompt' && <PromptPanel app={app} />}
-          {app.view === 'settings' && <SettingsPanel app={app} />}
+          {app.view === 'resources' && <ResourceCenterPanel app={app} rc={rc} />}
+          {app.view === 'prompt' && (
+            <AiWorkflowPanel app={app} rc={rc} subTab={aiSubTab} onSubTabChange={setAiSubTab} />
+          )}
+          {app.view === 'settings' && <SettingsPanel app={app} rc={rc} />}
         </div>
 
         {app.view === 'board' && (
@@ -537,7 +586,36 @@ export function DdlDrawer({ app }: { app: DdlAppController }) {
           </footer>
         )}
 
-        {app.view === 'prompt' && (
+        {app.view === 'prompt' && aiSubTab === 'export' && (
+          <footer className="ykt-footer">
+            <div className="ykt-footer-meta tabular">
+              <span>已选 {rc.exportCourseIds.length} 门课</span>
+              <span>
+                {activeExportModeMeta.name} ({activeExportModeMeta.extension})
+              </span>
+            </div>
+            {rc.busyMode === 'export' ? (
+              <button
+                type="button"
+                className="ykt-btn ykt-btn-secondary ykt-btn-full"
+                onClick={rc.cancelActiveTask}
+              >
+                <StopCircleIcon size={14} /> 取消导出
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="ykt-btn ykt-btn-primary ykt-btn-full"
+                disabled={rc.busyMode !== null || rc.exportCourseIds.length === 0 || !rc.discovery}
+                onClick={() => void rc.exportBundle()}
+              >
+                <PackageIcon size={14} /> 一键导出{activeExportModeMeta.name}
+              </button>
+            )}
+          </footer>
+        )}
+
+        {app.view === 'prompt' && aiSubTab === 'prompt' && (
           <footer className="ykt-footer">
             <div className="ykt-footer-meta tabular">
               <span>已包含 {actionCount} 项任务</span>

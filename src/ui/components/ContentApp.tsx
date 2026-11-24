@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { createBrowserResourceBackend } from '../adapters/resourceBackend';
 import { useDdlApp, type UseDdlAppOptions } from '../hooks/useDdlApp';
+import { getRegisteredResourceCenterBackend, registerResourceCenterBackend } from '../hooks/useResourceCenter';
 import drawerCss from '../styles/drawer.css?inline';
 import { DdlDrawer } from './DdlDrawer';
 import { FloatingDock } from './FloatingDock';
 import { AlertTriangleIcon, CheckIcon } from './Icons';
+
+if (!getRegisteredResourceCenterBackend()) {
+  registerResourceCenterBackend(createBrowserResourceBackend());
+}
 
 export interface ContentAppProps extends UseDdlAppOptions {
   /** If true, renders inside an isolated Shadow DOM host element automatically */

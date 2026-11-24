@@ -168,3 +168,80 @@ export const HelpCircleIcon = ({ size, ...props }: IconProps) => (
     <path d="M12 17h.01" />
   </svg>
 );
+
+export const FolderIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+  </svg>
+);
+
+export const FileTextIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M8 13h8M8 17h6M8 9h2" />
+  </svg>
+);
+
+export const PresentationIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <rect x="2" y="3" width="20" height="14" rx="2" />
+    <path d="M8 21h8M12 17v4" />
+  </svg>
+);
+
+export const PaperclipIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  </svg>
+);
+
+export const VideoIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+    <path d="M16 10l6-3v10l-6-3v-4z" />
+  </svg>
+);
+
+export const MegaphoneIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M3 11v2a2 2 0 0 0 2 2h2l5 4V5L7 9H5a2 2 0 0 0-2 2z" />
+    <path d="M16 9a5 5 0 0 1 0 6" />
+    <path d="M19 6.5a9 9 0 0 1 0 11" />
+  </svg>
+);
+
+export const PackageIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M16.5 9.4l-9-5.19" />
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    <path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
+  </svg>
+);
+
+export const BookOpenIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" />
+    <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
+  </svg>
+);
+
+export const CodeIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" />
+  </svg>
+);
+
+export const StopCircleIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <circle cx="12" cy="12" r="9" />
+    <rect x="9" y="9" width="6" height="6" rx="1" />
+  </svg>
+);
+
+export const FlaskIcon = ({ size, ...props }: IconProps) => (
+  <svg {...base(size)} {...props}>
+    <path d="M9 3h6M10 3v5.4l-4.6 7.8A2 2 0 0 0 7.1 19h9.8a2 2 0 0 0 1.7-2.8L14 8.4V3" />
+    <path d="M7.5 14h9" />
+  </svg>
+);

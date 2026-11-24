@@ -25,7 +25,7 @@ import { useDebouncedValue } from '../utils/format';
 
 export type FilterTab = 'pending' | 'urgent' | 'all' | 'submitted' | 'overdue';
 export type GroupByMode = 'urgency' | 'course';
-export type DrawerView = 'board' | 'prompt' | 'settings';
+export type DrawerView = 'board' | 'resources' | 'prompt' | 'settings';
 
 export interface ToastMessage {
   id: number;

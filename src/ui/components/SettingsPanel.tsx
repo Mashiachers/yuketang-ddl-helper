@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { formatDateTime } from '../../core';
 import type { DdlAppController } from '../hooks/useDdlApp';
-import { ChevronDownIcon, HelpCircleIcon, RefreshIcon, UploadIcon } from './Icons';
+import type { ResourceCenterController } from '../hooks/useResourceCenter';
+import { ChevronDownIcon, FlaskIcon, HelpCircleIcon, RefreshIcon, UploadIcon } from './Icons';
 
 const PLACEHOLDERS = [
   { token: '{{now}}', label: '当前时间' },
@@ -9,7 +10,13 @@ const PLACEHOLDERS = [
   { token: '{{freeTimeNotes}}', label: '空闲时段' },
 ] as const;
 
-export function SettingsPanel({ app }: { app: DdlAppController }) {
+export function SettingsPanel({
+  app,
+  rc,
+}: {
+  app: DdlAppController;
+  rc?: ResourceCenterController;
+}) {
   const [rawJson, setRawJson] = useState('');
   const [importing, setImporting] = useState(false);
   const templateRef = useRef<HTMLTextAreaElement | null>(null);
@@ -307,6 +314,78 @@ export function SettingsPanel({ app }: { app: DdlAppController }) {
                 </div>
               )}
             </div>
+
+            {rc && (
+              <div className="ykt-diag-divider">
+                <div className="ykt-section-title" style={{ marginBottom: 6 }}>
+                  <span>课程资源索引与接口诊断（v0.2）</span>
+                  <button
+                    type="button"
+                    className="ykt-link-btn"
+                    disabled={rc.loading}
+                    onClick={() => void rc.refreshResources(true)}
+                  >
+                    <RefreshIcon size={12} className={rc.loading ? 'ykt-spin' : undefined} /> 刷新资源探测
+                  </button>
+                </div>
+
+                <div className="ykt-diag-chips tabular">
+                  <span className="ykt-tag">已索引 {rc.syncStatus?.knownMaterials ?? rc.materials.length} 份</span>
+                  <span className="ykt-tag">已下载 {rc.syncStatus?.downloadedMaterials ?? rc.stats.downloadedCount} 份</span>
+                  {(rc.syncStatus?.failedMaterials ?? rc.stats.failedCount) > 0 && (
+                    <span className="ykt-tag ykt-status-pill status-failed">
+                      失败 {rc.syncStatus?.failedMaterials ?? rc.stats.failedCount} 份
+                    </span>
+                  )}
+                  {rc.syncedAt && Number.isFinite(Date.parse(rc.syncedAt)) && (
+                    <span className="ykt-tag">同步于 {formatDateTime(Date.parse(rc.syncedAt))}</span>
+                  )}
+                </div>
+
+                {rc.diagnostics.length > 0 ? (
+                  <table className="ykt-diag-table tabular" style={{ marginTop: 8 }}>
+                    <thead>
+                      <tr>
+                        <th>作用域</th>
+                        <th>端点</th>
+                        <th>结果</th>
+                        <th>耗时</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rc.diagnostics.slice(-12).map((ep, idx) => (
+                        <tr key={`${ep.endpoint}-${ep.scope}-${idx}`}>
+                          <td>{ep.scope}</td>
+                          <td style={{ wordBreak: 'break-all', maxWidth: 185 }}>
+                            <div>{ep.endpoint}</div>
+                            {ep.experimental && (
+                              <span className="ykt-tag ykt-tag-exp" style={{ marginTop: 3 }}>
+                                <FlaskIcon size={9} /> 实验接口
+                              </span>
+                            )}
+                            {ep.note && (
+                              <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                                {ep.note}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            {ep.outcome}
+                            {ep.status ? ` (${ep.status})` : ''}
+                            {typeof ep.itemCount === 'number' ? ` · ${ep.itemCount}` : ''}
+                          </td>
+                          <td>{ep.durationMs}ms</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="ykt-section-desc" style={{ marginTop: 6 }}>
+                    暂无课程资源接口诊断记录，切换至「课程资源」或点击「刷新资源探测」后显示。
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label htmlFor="ykt-raw-json" style={{ fontWeight: 700, fontSize: 12 }}>
