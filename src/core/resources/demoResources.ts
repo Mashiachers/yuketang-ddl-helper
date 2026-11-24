@@ -12,15 +12,16 @@ export function createDemoResourceDiscovery(now = Date.now(), origin = 'https://
   const iso = (days: number) => new Date(now + days * DAY_MS).toISOString();
   const sourcePlatform = 'demo';
   const makeCourse = (id: string, name: string, teacher: string, description: string): Course => ({
-    id, name, teacher, description, term: '演示学期', sourceOrigin: origin, sourcePlatform, updatedAt: iso(-1),
+    id, classroomId: id, name, teacher, description, term: '演示学期',
+    sourceOrigin: origin, sourcePlatform, sourceUrl: new URL('/v2/web/studentLog/' + id, origin).href, updatedAt: iso(-1),
   });
   const signals = makeCourse('demo-signals', '数字信号处理', '陈老师', '从离散信号到频域分析与数字滤波。');
   const systems = makeCourse('demo-systems', '计算机组成原理', '周老师', '用 RISC-V 指令和流水线实例学习处理器设计。');
   const assetUrl = (path: string) => new URL('/demo-assets/' + path, origin).href;
   const makeMaterial = (course: Course, id: string, type: CourseMaterial['type'], title: string,
     chapterTitle: string, extra: Partial<CourseMaterial> = {}): CourseMaterial => ({
-    id, resourceKey: [course.id, type, id].join(':'), courseId: course.id, courseName: course.name,
-    title, chapterTitle, type, sourcePlatform, publishedAt: iso(-7), updatedAt: iso(-1),
+    id, resourceKey: [course.id, type, id].join(':'), courseId: course.id, classroomId: course.classroomId, courseName: course.name,
+    title, chapterTitle, type, sourcePlatform, sourceUrl: course.sourceUrl, publishedAt: iso(-7), updatedAt: iso(-1),
     downloadStatus: 'not_downloaded', ...extra,
   });
   const attachment = makeMaterial(systems, 'lab-note', 'announcement_attachment', '实验提交清单', '流水线',
@@ -31,7 +32,11 @@ export function createDemoResourceDiscovery(now = Date.now(), origin = 'https://
   });
 
   return {
-    origin, sourcePlatform, source: 'demo', syncedAt: iso(0), diagnostics: [], failedCourses: 0,
+    origin, sourcePlatform, source: 'demo', syncedAt: iso(0),
+    diagnostics: [
+      { endpoint: '/demo/resources', scope: 'materials', outcome: 'ok', experimental: false, status: 200, itemCount: 6, durationMs: 1, note: 'demo-offline-dataset' },
+    ],
+    failedCourses: 0,
     courses: [signals, systems],
     materials: [
       makeMaterial(signals, 'spectrum', 'slides', '离散信号频谱', '频域分析',

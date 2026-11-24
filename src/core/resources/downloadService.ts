@@ -4,7 +4,7 @@ import type {
 } from '../../types/resources';
 import { runRateLimitedQueue } from '../queue/rateLimitedQueue';
 import { computeSha256Hex } from './indexStore';
-import { buildSafeRelativePath, deduplicateFilename, sanitizeFilename } from './naming';
+import { buildSafeRelativePath, deduplicateFilename, neutralizeActiveExtension, sanitizeFilename } from './naming';
 import { mergeSlideImagesToPdf } from './pdf';
 import type { SlideImageConverter, SlideImageInput } from './pdf';
 
@@ -62,8 +62,13 @@ function abortable<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
 }
 
 function downloadUrl(value: string): URL {
-  const url = URL.parse(value);
-  if (!url || !/^https?:$/.test(url.protocol) || url.username || url.password) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new DownloadError('invalid-response');
+  }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password) {
     throw new DownloadError('invalid-response');
   }
   return url;
@@ -92,7 +97,7 @@ function resultFilename(material: CourseMaterial, mimeType: string, merged: bool
   if (merged) base = base.replace(/\.[a-z0-9]{1,10}$/i, '');
   const extension = mimeExtensions[mimeType] ?? '';
   if (merged || (extension && !/\.[a-z0-9]{1,10}$/i.test(base))) base += extension;
-  return sanitizeFilename(base);
+  return neutralizeActiveExtension(sanitizeFilename(base));
 }
 
 export function triggerBrowserDownload(bytesOrBlob: Uint8Array | Blob, filename: string, mimeType = 'application/octet-stream'): void {
@@ -101,7 +106,7 @@ export function triggerBrowserDownload(bytesOrBlob: Uint8Array | Blob, filename:
   const url = URL.createObjectURL(blob);
   try {
     link.href = url;
-    link.download = sanitizeFilename(filename);
+    link.download = neutralizeActiveExtension(sanitizeFilename(filename));
     link.click();
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -291,7 +296,7 @@ export function createDownloadService(deps: DownloadServiceDependencies = {}) {
       if (outcome.status === 'fulfilled') {
         const item = outcome.value;
         if (!item.filename) return item;
-        const filename = deduplicateFilename(item.filename, names);
+        const filename = neutralizeActiveExtension(deduplicateFilename(item.filename, names));
         return { ...item, filename, relativePath: buildSafeRelativePath([filename]) };
       }
       failed++;

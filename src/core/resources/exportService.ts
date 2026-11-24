@@ -5,7 +5,10 @@ import type {
 } from '../../types/resources';
 import { buildIcsContent } from '../ics/builder';
 import { formatAiPrompt } from '../prompt/formatter';
-import { buildSafeRelativePath, deduplicateFilename, redactCredentialText, sanitizeFilename, sanitizePathSegment } from './naming';
+import {
+  buildSafeRelativePath, deduplicateFilename, isActiveFileExtension, neutralizeActiveExtension,
+  redactCredentialText, sanitizeFilename, sanitizePathSegment,
+} from './naming';
 import { buildZipArchive } from './zip';
 import type { ZipEntryInput } from './zip';
 
@@ -52,13 +55,18 @@ const mimeTypes: Record<ExportedFileEntry['kind'], string> = {
 function sensitiveKey(key: string): boolean {
   const compact = key.toLowerCase().replace(/[^a-z0-9]/g, '');
   return /cookie|csrf|xsrf|session|token|authorization|password|secret|credential|bearer|jwt|apikey|accesskey|privatekey|studentid|userid/.test(compact) ||
-    /^(?:auth|xauth|signature|sig|keypairid|policy|setcookie|xamz.*|xgoog.*|xoss.*)$/.test(compact) ||
+    /^(?:auth|xauth|signature|sig|keypairid|policy|setcookie|expires|ossaccesskeyid|securitytoken|qsignature|qak|qsigntime|qkeytime|qheaderlist|qurlparamlist|qsignalgorithm|xamz.*|xgoog.*|xoss.*|xcos.*)$/.test(compact) ||
     /(^|[^a-z])auth([^a-z]|$)|Auth[A-Z]|^auth[A-Z]/.test(key);
 }
 
 function cleanUrl(value: string): string | undefined {
-  const url = URL.parse(value.trim());
-  if (!url || !/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return undefined;
+  }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
   for (const key of url.searchParams.keys()) {
     if (sensitiveKey(key)) {
       url.search = '';
@@ -189,26 +197,46 @@ export function buildAiContextFiles(data: ExportData, now = Date.now()): ZipEntr
 }
 
 function notebookExt(filename: string, mime?: string): boolean {
-  const extension = filename.split('.').pop()?.toLowerCase();
+  if (isActiveFileExtension(filename)) return false;
+  const extension = filename.split('.').pop()?.toLowerCase() ?? '';
+  const allowedExts = ['pdf', 'md', 'txt', 'docx'];
+  if (!allowedExts.includes(extension)) return false;
   if (mime && mime !== 'application/octet-stream') {
-    return /^(?:application\/pdf|text\/(?:plain|markdown)|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/.test(mime);
+    const cleanMime = mime.split(';', 1)[0].trim().toLowerCase();
+    const expected: Record<string, RegExp> = {
+      pdf: /^application\/pdf$/,
+      md: /^text\/(?:markdown|plain)$/,
+      txt: /^text\/plain$/,
+      docx: /^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/,
+    };
+    return expected[extension]?.test(cleanMime) ?? false;
   }
-  return ['pdf', 'md', 'txt', 'docx'].includes(extension ?? '');
+  return true;
+}
+
+function courseFolderKey(course: Pick<Course, 'id' | 'classroomId'>): string {
+  return `${course.id}::${course.classroomId ?? ''}`;
 }
 
 function courseFolders(data: ExportData, notebook: boolean): Map<string, string> {
   const terms = new Map<string, string>();
   const usedTerms = new Set<string>(['manifest.json', 'README.md']);
   const names = new Map<string, Set<string>>();
-  return new Map(data.courses.map(course => {
+  const map = new Map<string, string>();
+  for (const course of data.courses) {
+    const folderKey = courseFolderKey(course);
+    if (map.has(folderKey)) continue;
     const term = course.term?.trim() || 'current';
     const root = notebook ? 'Yuketang_NotebookLM' : 'Yuketang';
     if (!notebook && !terms.has(term)) terms.set(term, deduplicateFilename(sanitizePathSegment(term), usedTerms));
     const termFolder = notebook ? root : buildSafeRelativePath([root, terms.get(term)!]);
     const used = names.get(termFolder) ?? new Set<string>(notebook ? ['manifest.json', '00_课程资料清单.md'] : []);
     names.set(termFolder, used);
-    return [course.id, termFolder + '/' + deduplicateFilename(sanitizePathSegment(course.name), used)];
-  }));
+    const dir = termFolder + '/' + deduplicateFilename(sanitizePathSegment(course.name), used);
+    map.set(folderKey, dir);
+    if (!map.has(course.id)) map.set(course.id, dir);
+  }
+  return map;
 }
 
 export function buildNotebookLmFiles(data: ExportData, folders = courseFolders(data, true)): ZipEntryInput[] {
@@ -221,7 +249,7 @@ export function buildNotebookLmFiles(data: ExportData, folders = courseFolders(d
       const notices = announcementMarkdown(content.announcements);
       const name = sanitizeFilename('00_' + course.name + '_课程概览与作业.md');
       return {
-        path: folders.get(course.id) + '/' + name,
+        path: (folders.get(courseFolderKey(course)) ?? folders.get(course.id)) + '/' + name,
         data: buildCourseReadmeMarkdown(course, content.materials) +
           (tasks ? '\n## 作业与考试\n' + tasks : '') + (notices ? '\n## 公告\n' + notices : ''),
       };
@@ -239,7 +267,7 @@ function knowledgeFolder(material: CourseMaterial): string {
 function addKnowledgeFiles(data: ExportData, folders: Map<string, string>, add: AddFile, now: number): void {
   add('Yuketang/README.md', overview(data), 'readme');
   for (const course of data.courses) {
-    const prefix = folders.get(course.id) + '/';
+    const prefix = (folders.get(courseFolderKey(course)) ?? folders.get(course.id)) + '/';
     const content = forCourse(data, course);
     const details = { courseId: course.id };
     add(prefix + 'README.md', buildCourseReadmeMarkdown(course, content.materials), 'readme', details);
@@ -261,7 +289,13 @@ export async function buildExportFiles(input: ExportBuildInput): Promise<{ files
   input.signal?.throwIfAborted();
   const now = input.now ?? Date.now();
   const selected = input.courseIds && new Set(input.courseIds);
-  const courses = input.courses.filter(course => !selected || selected.has(course.id));
+  const uniqueCourses = new Map<string, Course>();
+  for (const course of input.courses) {
+    if (selected && !selected.has(course.id)) continue;
+    const key = courseFolderKey(course);
+    if (!uniqueCourses.has(key)) uniqueCourses.set(key, course);
+  }
+  const courses = [...uniqueCourses.values()];
   const courseIds = new Set(courses.map(course => course.id));
   const matches = (item: { courseId: string }) => courseIds.has(item.courseId);
   const announcements = input.includeAnnouncements === false ? [] : (input.announcements ?? []).filter(matches);
@@ -345,9 +379,12 @@ export async function buildExportFiles(input: ExportBuildInput): Promise<{ files
         continue;
       }
       const notebook = input.mode === 'notebooklm';
-      const dir = folders.get(material.courseId)! + (notebook ? '' : '/' + knowledgeFolder(material));
+      const courseDir =
+        folders.get(courseFolderKey({ id: material.courseId, classroomId: material.classroomId })) ??
+        folders.get(material.courseId)!;
+      const dir = courseDir + (notebook ? '' : '/' + knowledgeFolder(material));
       const file = notebook ? '01_' + (material.chapterTitle ? material.chapterTitle + '_' : '') + rawName : rawName;
-      const name = deduplicateFilename(sanitizeFilename(sanitizeText(file)), getNames(dir));
+      const name = deduplicateFilename(neutralizeActiveExtension(sanitizeFilename(sanitizeText(file))), getNames(dir));
       add(dir + '/' + name, bytes, 'material', {
         courseId: material.courseId, resourceKey: material.resourceKey, mimeType: mime,
         checksum: result?.checksum,

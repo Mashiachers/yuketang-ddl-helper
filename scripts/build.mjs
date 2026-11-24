@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { build } from 'vite';
 
 await build({
@@ -22,4 +24,9 @@ for (const [name, entry, format] of [
       },
     },
   });
+}
+
+const licenseSrc = path.resolve('LICENSE');
+if (fs.existsSync(licenseSrc)) {
+  fs.copyFileSync(licenseSrc, path.resolve('dist/LICENSE'));
 }

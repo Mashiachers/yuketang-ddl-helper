@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "雨课堂 DDL 助手",
-  "description": "纯本地运行的雨课堂全课程 DDL 聚合看板，支持一键导出多级提醒日历 (.ics) 与打包结构化 Prompt 复制给 AI。",
-  "version": "0.1.0",
+  "description": "纯本地运行的雨课堂全课程 DDL 聚合与课程资源导出助手，支持多级提醒日历 (.ics)、课程知识库/NotebookLM/AI Context Pack 导出与结构化 Prompt 打包。",
+  "version": "0.2.0",
+  "version_name": "0.2.0-beta",
   "permissions": [
     "storage",
     "clipboardWrite"

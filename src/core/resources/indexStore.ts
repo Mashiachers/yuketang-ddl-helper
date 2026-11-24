@@ -14,6 +14,45 @@ export async function computeSha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const VALID_STATUSES = new Set<DownloadRecord['status']>([
+  'not_downloaded', 'downloading', 'downloaded', 'updated', 'failed', 'unavailable',
+]);
+
+function validateRecord(key: string, raw: unknown): DownloadRecord | undefined {
+  if (RESERVED_KEYS.has(key) || !raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (
+    typeof r.resourceKey !== 'string' || !r.resourceKey ||
+    typeof r.courseId !== 'string' || !r.courseId ||
+    typeof r.materialId !== 'string' || !r.materialId ||
+    typeof r.filename !== 'string' || !r.filename ||
+    typeof r.relativePath !== 'string' || !r.relativePath ||
+    typeof r.status !== 'string' || !VALID_STATUSES.has(r.status as DownloadRecord['status']) ||
+    typeof r.lastAttemptAt !== 'string' ||
+    typeof r.retryCount !== 'number' || !Number.isInteger(r.retryCount) || r.retryCount < 0
+  ) {
+    return undefined;
+  }
+  const clean: DownloadRecord = {
+    resourceKey: r.resourceKey,
+    courseId: r.courseId,
+    materialId: r.materialId,
+    filename: sanitizeFilename(r.filename),
+    relativePath: r.relativePath,
+    status: r.status as DownloadRecord['status'],
+    lastAttemptAt: r.lastAttemptAt,
+    retryCount: r.retryCount,
+  };
+  if (typeof r.size === 'number' && Number.isFinite(r.size) && r.size >= 0) clean.size = r.size;
+  if (typeof r.checksum === 'string' && /^[a-f0-9]{64}$/i.test(r.checksum)) clean.checksum = r.checksum;
+  if (typeof r.sourceUpdatedAt === 'string') clean.sourceUpdatedAt = r.sourceUpdatedAt;
+  if (typeof r.downloadedAt === 'string') clean.downloadedAt = r.downloadedAt;
+  if (typeof r.errorCode === 'string') clean.errorCode = r.errorCode as DownloadRecord['errorCode'];
+  if (typeof r.errorMessage === 'string') clean.errorMessage = redactCredentialText(r.errorMessage);
+  return clean;
+}
+
 export async function loadResourceIndex(origin: string, sourcePlatform: string): Promise<CourseResourceIndex> {
   const key = storageKey(origin, sourcePlatform);
   const empty: CourseResourceIndex = {
@@ -21,7 +60,7 @@ export async function loadResourceIndex(origin: string, sourcePlatform: string):
     lastSyncedAt: '', knownResourceKeys: [], records: {},
   };
   const area = globalThis.chrome?.storage?.local;
-  let index: CourseResourceIndex | undefined;
+  let index: unknown;
   if (area) {
     index = (await area.get(key))[key];
   } else {
@@ -33,10 +72,42 @@ export async function loadResourceIndex(origin: string, sourcePlatform: string):
       try { index = JSON.parse(raw); } catch { /* Discard invalid JSON */ }
     }
   }
-  if (index?.schemaVersion !== RESOURCE_SCHEMA_VERSION || index.origin !== empty.origin ||
-      index.sourcePlatform !== sourcePlatform || !Array.isArray(index.knownResourceKeys) ||
-      !index.records || Array.isArray(index.records) || typeof index.records !== 'object') return empty;
-  return index;
+  if (!index || typeof index !== 'object' || Array.isArray(index)) return empty;
+  const candidate = index as Record<string, unknown>;
+  if (
+    candidate.schemaVersion !== RESOURCE_SCHEMA_VERSION ||
+    candidate.origin !== empty.origin ||
+    !Array.isArray(candidate.knownResourceKeys) ||
+    !candidate.records || Array.isArray(candidate.records) || typeof candidate.records !== 'object'
+  ) {
+    return empty;
+  }
+  const cleanRecords: Record<string, DownloadRecord> = {};
+  for (const [recKey, recVal] of Object.entries(candidate.records as Record<string, unknown>)) {
+    const validated = validateRecord(recKey, recVal);
+    if (validated) cleanRecords[recKey] = validated;
+  }
+  const knownResourceKeys = candidate.knownResourceKeys.filter(
+    (k): k is string => typeof k === 'string' && k.length > 0 && !RESERVED_KEYS.has(k),
+  );
+  const result: CourseResourceIndex & { materialHistory?: Record<string, unknown> } = {
+    schemaVersion: RESOURCE_SCHEMA_VERSION,
+    origin: empty.origin,
+    sourcePlatform,
+    lastSyncedAt: typeof candidate.lastSyncedAt === 'string' ? candidate.lastSyncedAt : '',
+    knownResourceKeys,
+    records: cleanRecords,
+  };
+  if (candidate.materialHistory && typeof candidate.materialHistory === 'object' && !Array.isArray(candidate.materialHistory)) {
+    const cleanHistory: Record<string, unknown> = {};
+    for (const [hKey, hVal] of Object.entries(candidate.materialHistory as Record<string, unknown>)) {
+      if (!RESERVED_KEYS.has(hKey) && hVal && typeof hVal === 'object' && !Array.isArray(hVal)) {
+        cleanHistory[hKey] = hVal;
+      }
+    }
+    result.materialHistory = cleanHistory;
+  }
+  return result;
 }
 
 export async function saveResourceIndex(index: CourseResourceIndex): Promise<void> {
@@ -73,9 +144,9 @@ export function reconcileMaterialsWithIndex(materials: readonly CourseMaterial[]
     const isNew = !known.has(material.resourceKey) && !record;
     if (isNew) newCount++;
     if (!record) return { ...material, isNew };
-    const updated = sourceChanged(material, record);
+    const updated = record.status === 'downloaded' && sourceChanged(material, record);
     if (updated) updatedCount++;
-    const downloadStatus = updated ? 'updated' : record.status;
+    const downloadStatus = material.downloadStatus === 'unavailable' ? 'unavailable' : updated ? 'updated' : record.status;
     const reconciled: CourseMaterial = { ...material, isNew, downloadStatus };
     if (downloadStatus === 'downloaded') {
       reconciled.checksum = record.checksum;

@@ -144,10 +144,17 @@ export async function mergeSlideImagesToPdf(
   for (const image of images) {
     options.signal?.throwIfAborted();
     const mime = image.mimeType.split(';', 1)[0].trim().toLowerCase();
-    const jpeg = image.bytes[0] === 0xff && image.bytes[1] === 0xd8;
-    if (jpeg || /^image\/(?:jpeg|jpg)$/.test(mime)) {
+    const isJpegBytes = image.bytes.length >= 2 && image.bytes[0] === 0xff && image.bytes[1] === 0xd8;
+    const isPngBytes =
+      image.bytes.length >= 4 &&
+      image.bytes[0] === 0x89 && image.bytes[1] === 0x50 && image.bytes[2] === 0x4e && image.bytes[3] === 0x47;
+    const isWebpBytes =
+      image.bytes.length >= 12 &&
+      image.bytes[0] === 0x52 && image.bytes[1] === 0x49 && image.bytes[2] === 0x46 && image.bytes[3] === 0x46 &&
+      image.bytes[8] === 0x57 && image.bytes[9] === 0x45 && image.bytes[10] === 0x42 && image.bytes[11] === 0x50;
+    if (isJpegBytes) {
       pages.push(image);
-    } else if (mime === 'image/png' || mime === 'image/webp') {
+    } else if (isPngBytes || isWebpBytes || mime === 'image/png' || mime === 'image/webp') {
       try {
         pages.push(await converter(image));
       } catch {

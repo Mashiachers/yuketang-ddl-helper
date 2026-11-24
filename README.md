@@ -1,107 +1,94 @@
 # 雨课堂 DDL 助手（Yuketang DDL Helper）
 
-一款开源、纯本地、零外部服务器依赖的 Chrome / Edge Manifest V3 浏览器插件。帮助你一站式聚合雨课堂全课程待办作业与考试，打通 **RFC 5545 多级提醒日历导出（`.ics`）** 与 **AI 学习规划 / 解题框架 Prompt 工作流**。
+**An open-source, local-first, AI-ready connector for Yuketang.**
 
-> **当前状态**：`v0.1.0-beta` 预览内测中。已在**长江雨课堂**实测可用，欢迎使用主站、荷塘、黄河及各高校分支的同学体验反馈。
+一款开源、纯本地、零外部服务器依赖的 Chrome / Edge Manifest V3 浏览器插件。帮助你一站式聚合雨课堂全课程待办作业与课程资源，打通 **RFC 5545 多级提醒日历（`.ics`）**、**课程知识库 / NotebookLM / AI Context Pack 导出** 与 **结构化 AI Prompt 工作流**。
 
----
-
-## 核心特性
-
-- **全课程 DDL 聚合看板（Shadow DOM 样式隔离）**
-  - 自动探测并复用当前同源登录态，页面右下角可拖拽悬浮胶囊实时展示 24h 高危预警数与最近 DDL 倒计时。
-  - 支持按紧急度 / 课程分组、关键词搜索、浅色/深色外观切换，以及本地「已处理」「隐藏」状态覆盖。
-  - **无截止时间任务（截止待定）专门适配**：自动保留老师暂未设截止时间的作业/考试，支持设置**个人目标 DDL**（可参与倒计时与 `.ics` 导出），若老师后续补设正式截止时间会自动切换并高亮提醒。
-  - **历史旧任务自动过滤**：默认自动屏蔽逾期或发布超过 100 天的往年旧记录（可在设置中自由调整天数或设为 `0` 关闭）。
-- **一键导出多级提醒日历（`.ics`）**
-  - 严格遵循 RFC 5545（CRLF 换行、UTF-8 安全的 75 字节行折叠、UTC 时间格式）。
-  - 默认内置三级闹钟（提前 3 天 `-P3D`、提前 24 小时 `-P1D`、截止前 3 小时 `-PT3H`），支持在设置中独立开关。
-  - 使用稳定去重 `UID`（`ykt-{courseId}-{id}@ddl-helper`），每周重复导出导入 Google Calendar / Apple 日历自动更新覆盖，不产生重复日程。
-- **一键打包结构化 Prompt 给 AI**
-  - 无需配置 API Key，内置「本周全盘规划」「48h 冲刺急救」「极简执行清单」及自定义模板（支持 `{{now}}`、`{{tasks}}`、`{{freeTimeNotes}}` 变量）。
-  - 支持填写个人本周空闲时段，复制后可直接交给 ChatGPT / Gemini / DeepSeek / Claude 等任意大模型生成排期与大作业框架。
-- **演示模式 & 脱敏接口诊断**
-  - 内置高仿真演示数据，未登录雨课堂也可直接体验全部交互。
-  - 内置脱敏接口探测诊断表、勾选任务「复制状态字段样本」及手动粘贴 JSON 兜底解析，方便快速排查高校分支差异。
+> **当前版本**：`v0.2.0-beta`（Resource Export & AI-Ready Data Foundation）。已在**长江雨课堂**验证基础课程/作业接口，新增课程资源与多分支端点标注了 `experimental`，欢迎不同高校分支的同学内测反馈。
 
 ---
 
-## 分支兼容性状态
+## 核心功能
 
-| 雨课堂分支 | 域名 | 当前状态 |
-| :--- | :--- | :--- |
-| 长江雨课堂 | `changjiang.yuketang.cn` | 已实测验证 |
-| 雨课堂主站 | `www.yuketang.cn` | 兼容探测（欢迎内测反馈） |
-| 荷塘雨课堂 | `pro.yuketang.cn` | 兼容探测（欢迎内测反馈） |
-| 黄河雨课堂 | `huanghe.yuketang.cn` | 兼容探测（欢迎内测反馈） |
-| 其他高校分支 | `*.yuketang.cn` | 兼容探测（欢迎提 Issue 附脱敏样本） |
+### 1. 全课程 DDL 聚合看板（v0.1 完整保留）
+- **多分支探测 & Shadow DOM 样式隔离**：自动复用当前同源登录态，页面右下角可拖拽悬浮胶囊实时显示 24h 高危预警数与最近 DDL 倒计时。
+- **截止待定 & 个人目标 DDL**：保留老师暂未设截止时间的作业/考试，支持设置个人目标 DDL 并参与日历导出；老师后续补设时自动切换并提示。
+- **历史旧任务过滤**：默认屏蔽逾期或发布超过 100 天的陈旧记录（可在设置调整或关闭）。
+- **RFC 5545 多级提醒日历（`.ics`）**：默认三级闹钟（`-P3D` / `-P1D` / `-PT3H`），稳定 `UID` 去重，重复导入 Google / Apple 日历自动更新不重复。
+
+### 2. 课程资源中心（v0.2 新增）
+- **统一资源发现**：分页扫描学习日志并尝试发现章节结构、课件（PDF / PPT / 图片幻灯片）、课程文档、附件与课程公告（未实盘验证端点均显式标注 `实验接口`）。
+- **单文件与批量下载**：支持按课程/类型筛选、搜索、实时进度显示、随时取消与失败重试；多文件批量下载自动打包为安全 ZIP。
+- **图片课件无损合并 PDF**：纯 TypeScript PDF 1.4 引擎，按原始幻灯片页序直接嵌入原图 JPEG（零依赖、不降低清晰度）。
+- **安全命名与增量索引**：跨平台中文安全文件名、路径穿越防护、Windows 保留设备名防护、可执行/脚本后缀惰性化（`.download`），并通过本地 `SHA-256` 索引实现新增标记、变更提示与跳过已下载。
+
+### 3. AI 工作流中心（v0.2 新增）
+选择课程 → 选择导出模式 → 下载资料包 → 交给任意大模型 / NotebookLM / Obsidian / AI Agent：
+- **完整课程知识库（`.zip`）**：标准分层目录（`manifest.json`、`README.md`、`course.json`、`materials.json`、`assignments.json`、`assignments.md`、`deadlines.ics` 及按真实内容生成的资料目录）。
+- **NotebookLM 资料包（`.zip`）**：扁平化章节命名，优先提供可直接导入的 PDF 与 Markdown 文件，避免重复。
+- **AI Context Pack（`.zip`）**：轻量纯文本/JSON 包（`course_overview.md`、`upcoming_deadlines.md`、`material_index.md`、`context.json`、`study_prompt.md`），内置提示词注入防护与学术诚信边界。
+- **结构化 JSON / 课程索引 Markdown**：单文件导出，Schema 版本 `0.2.0`。
+- **快捷 Prompt 复制**：完整保留 v0.1 全部提示词预设、空闲时段备注与自定义模板。
+
+---
+
+## 雨课堂分支兼容性状态
+
+| 雨课堂分支 | 域名 | 课程与作业 DDL | 课程资源发现（章节/幻灯片/公告） |
+| :--- | :--- | :--- | :--- |
+| 长江雨课堂 | `changjiang.yuketang.cn` | 已实盘验证 | 部分基础日志已验证，扩展资源端点为 `experimental`（待真实账号验证） |
+| 雨课堂主站 | `www.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎内测反馈） |
+| 荷塘雨课堂 | `pro.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎内测反馈） |
+| 黄河雨课堂 | `huanghe.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎内测反馈） |
+| 其他高校定制分支 | `*.yuketang.cn` | 兼容探测（待实测） | `experimental`（欢迎提 Issue 附脱敏样本） |
+
+详细接口调研与开源参考审计见 [API_RESEARCH.md](docs/agent-workflow/reports/API_RESEARCH.md)。
 
 ---
 
 ## 安装与使用（Chrome / Edge）
 
 ### 方式一：直接下载 Release 安装包（推荐，无需 Node 环境）
-1. 前往本仓库右侧 **Releases** 页面，下载最新版的 `yuketang-ddl-helper-v*.zip` 并解压到一个固定文件夹（例如 `Documents/yuketang-ddl-helper`）。
-2. 在 Chrome 地址栏打开 `chrome://extensions/`（Edge 打开 `edge://extensions/`）。
-3. 开启右上角 **开发者模式（Developer mode）**。
-4. 点击 **加载已解压的扩展程序（Load unpacked）**，选择刚刚解压出来的文件夹（目录内应直接包含 `manifest.json`）。
-5. 打开并登录你的雨课堂页面（如 `https://changjiang.yuketang.cn`），即可在右下角看到悬浮入口。
+1. 前往 **Releases** 下载 `yuketang-ddl-helper-v0.2.0-beta.zip` 并解压到固定目录。
+2. 浏览器打开 `chrome://extensions/`（Edge 为 `edge://extensions/`），开启右上角 **开发者模式**。
+3. 点击 **加载已解压的扩展程序**，选择解压后的目录（目录内应直接包含 `manifest.json`）。
+4. 登录任意雨课堂页面即可在右下角看到悬浮入口；未登录时也可在「设置」中开启 **演示模式** 完整体验 DDL、课件合并 PDF 与 5 种 AI 导出模式。
 
-### 方式二：从源码本地构建（适合开发者）
+### 方式二：从源码构建
 ```bash
 npm install
-npm run build
-```
-随后按方式一的第 2–5 步加载本项目的 `dist/` 目录即可。若需打包可直接分享的 `.zip` 发布包：
-```bash
-npm run package
-# 输出至 release/yuketang-ddl-helper-v0.1.0.zip
-```
-
----
-
-## 遇到适配问题如何反馈？
-
-不同学校的雨课堂接口字段可能存在细微差异。若遇到「已提交仍显示未交」「非作业条目误入看板」或同步异常：
-1. 在看板中**勾选出问题的 1–3 条任务**。
-2. 切到右上角「设置」→ 展开「高级与诊断」→ 点击 **「复制状态字段样本」**（仅含脱敏后的状态码、类型和路由模板，不含 Cookie、学号或课程真实 ID）。
-3. 在 GitHub 提交 [分支适配 Issue](.github/ISSUE_TEMPLATE/branch-compat.md) 并粘贴样本即可。
-
----
-
-## 本地开发与验证
-
-```bash
-# 启动本地沙盒预览（模拟雨课堂页面 + Shadow DOM 注入 + 演示数据）
-npm run dev
-
-# 类型检查
 npm run typecheck
-
-# 运行全部单元测试
 npm test
-
-# 构建生产扩展包至 dist/
 npm run build
-
-# 构建并打包发布用 zip 至 release/
-npm run package
+npm run package   # 输出 release/yuketang-ddl-helper-v0.2.0-beta.zip
 ```
+
+---
+
+## 文档导航
+
+- [课程资源导出与 AI 工作流使用指南](docs/RESOURCE_EXPORT_GUIDE.md)
+- [JSON Schema (`0.2.0`) 与未来 MCP Server 接入指南](docs/JSON_SCHEMA.md)
+- [架构设计文档](docs/agent-workflow/ARCHITECTURE.md) & [架构决策记录（ADRs）](docs/agent-workflow/DECISIONS.md)
+- [雨课堂接口调研报告](docs/agent-workflow/reports/API_RESEARCH.md)
+- [测试计划](docs/agent-workflow/reports/TEST_PLAN.md) & [安全与隐私审查报告](docs/agent-workflow/reports/SECURITY_REVIEW.md)
+- [变更日志 CHANGELOG](CHANGELOG.md)
 
 ---
 
 ## 路线图（Roadmap）
 
-- **v0.1（当前）**：只读 DDL 聚合看板 + 截止待定/个人目标 DDL + RFC 5545 多级提醒 `.ics` + 结构化 AI Prompt 打包 + 脱敏诊断。
-- **v0.2（规划中）**：一键直达 ChatGPT / Gemini / DeepSeek 网页端 + BYOK（本地自带 DeepSeek / OpenAI 兼容 API Key）侧边栏直出周计划与复习框架。
-- **v0.3（规划中）**：本地只读数据桥 / MCP Server，支持对接编程 Agent 与自动化学习工作流（Notion / Obsidian / 每日 DDL 提醒）。
+- **v0.1**：全课程 DDL 聚合看板 + 截止待定/个人目标 DDL + RFC 5545 `.ics` + 快捷 Prompt 打包。
+- **v0.2（当前）**：统一课程资源数据模型（`schemaVersion: 0.2.0`）+ 资源发现与批量下载 + 图片课件合 PDF + AI-Ready 知识库 / NotebookLM / AI Context Pack 导出 + 本地 SHA-256 增量索引 + MCP-ready 领域服务解耦。
+- **v0.3（规划中）**：独立 **MCP Server & CLI**（直接复用 `src/core/resources/` 的 `CourseProvider` 与导出引擎，对接 Claude Code / Cursor / Antigravity / 个人 Agent 工作流）。
 
 ---
 
 ## 隐私与合规声明
 
-- **100% 纯本地运行**：不连接任何开发者服务器，不收集、上传或存储你的雨课堂账号、Cookie、Token 或课程内容。
-- **严格只读边界**：仅读取当前已登录学生本人可见的课程与作业元数据，**绝不包含任何自动刷课、自动答题、自动提交或代签到功能**。
+- **100% 纯本地运行 & 权限最小化**：仅申请 `storage`、`clipboardWrite` 与 `https://*.yuketang.cn/*` 权限；不连接任何开发者服务器，不上传账号、Cookie、Token 或课程文件。
+- **严格只读边界**：仅读取当前已登录学生本人正常授权可访问的课程与资料元数据，**绝不包含任何自动签到、自动刷课、自动答题、自动提交或绕过 DRM/下载限制的功能**。
+- **脱敏导出**：所有导出 JSON / Markdown / ICS 与接口诊断均自动过滤凭据、签名参数与标注学号，不执行课程内容中的原始 HTML 或提示词指令。
 
 ## License
 

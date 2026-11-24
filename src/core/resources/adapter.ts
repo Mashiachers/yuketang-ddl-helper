@@ -726,7 +726,13 @@ function mergeMaterials(existing: CourseMaterial, incoming: CourseMaterial): Cou
     filename: existing.filename || incoming.filename,
     size: existing.size ?? incoming.size,
     downloadStatus,
-    experimental: existing.experimental === false || incoming.experimental === false ? false : existing.experimental ?? incoming.experimental,
+    experimental:
+      (incoming.experimental && (Boolean(incoming.downloadUrl) || Boolean(incoming.slideImages?.length))) ||
+      (existing.experimental && (Boolean(existing.downloadUrl) || Boolean(existing.slideImages?.length)))
+        ? true
+        : existing.experimental === false || incoming.experimental === false
+          ? false
+          : existing.experimental ?? incoming.experimental,
     metadata: sanitizeMetadata({ ...existing.metadata, ...incoming.metadata }),
   };
 }
@@ -1009,7 +1015,12 @@ export function normalizeCourseMaterials(
  * Normalizes announcement payloads (both discussion announcements API and learn log notices)
  * into sanitized plain-text Announcement[] without raw HTML.
  */
-export function normalizeAnnouncements(input: unknown, course: Course, origin: string): Announcement[] {
+export function normalizeAnnouncements(
+  input: unknown,
+  course: Course,
+  origin: string,
+  options: { experimental?: boolean } = {},
+): Announcement[] {
   const announcements = new Map<string, Announcement>();
 
   // Handle nested { data: { data: [...] } } from /v/discussion/v2/announcements/ as well as standard wrappers.
@@ -1070,6 +1081,7 @@ export function normalizeAnnouncements(input: unknown, course: Course, origin: s
       parentId: id,
       defaultType: 'announcement_attachment',
       publishedAt,
+      experimental: options.experimental,
     });
 
     const resourceKey = buildEntityKey(course.id, 'announcement', id);
@@ -1258,7 +1270,7 @@ function inspectBusinessStatus(data: unknown): { outcome: 'ok' | ResourceErrorCo
     const code = String(obj.error_code ?? obj.sub_code ?? obj.code ?? '');
     if (AUTH_BUSINESS_CODES.has(code)) return { outcome: 'unauthorized', note: `business-code-${code}` };
     if (NOT_FOUND_BUSINESS_CODES.has(code)) return { outcome: 'not-found', note: `business-code-${code}` };
-    return { outcome: 'invalid-response', note: code ? `business-code-${code}` : 'success-false' };
+    return { outcome: 'invalid-response', note: code ? 'business-code-unrecognized' : 'success-false' };
   }
 
   // Family 2: { errcode: number | string }
@@ -1267,7 +1279,7 @@ function inspectBusinessStatus(data: unknown): { outcome: 'ok' | ResourceErrorCo
     if (code === '0') return { outcome: 'ok' };
     if (AUTH_BUSINESS_CODES.has(code)) return { outcome: 'unauthorized', note: `errcode-${code}` };
     if (NOT_FOUND_BUSINESS_CODES.has(code)) return { outcome: 'not-found', note: `errcode-${code}` };
-    return { outcome: 'invalid-response', note: `errcode-${code}` };
+    return { outcome: 'invalid-response', note: 'errcode-unrecognized' };
   }
 
   // Family 3: { code: number | string }
@@ -1276,7 +1288,7 @@ function inspectBusinessStatus(data: unknown): { outcome: 'ok' | ResourceErrorCo
     if (code === '0' || code === '200') return { outcome: 'ok' };
     if (AUTH_BUSINESS_CODES.has(code)) return { outcome: 'unauthorized', note: `code-${code}` };
     if (NOT_FOUND_BUSINESS_CODES.has(code)) return { outcome: 'not-found', note: `code-${code}` };
-    return { outcome: 'invalid-response', note: `code-${code}` };
+    return { outcome: 'invalid-response', note: 'code-unrecognized' };
   }
 
   return { outcome: 'ok' };
@@ -1756,7 +1768,9 @@ export async function discoverCourseResources(
 
         if (res.ok) {
           anyCourseSuccess = true;
-          const anns = normalizeAnnouncements(res.data, course, platform.origin);
+          const anns = normalizeAnnouncements(res.data, course, platform.origin, {
+            experimental: candidate.experimental,
+          });
           recordDiagnostic(diagnostics, candidate, res, anns.length);
           for (const ann of anns) {
             announcementsMap.set(ann.resourceKey, ann);
@@ -1789,14 +1803,17 @@ export async function discoverCourseResources(
           (typeof m.metadata?.presentationId === 'string' || typeof m.metadata?.lessonId === 'string'),
       );
 
-      for (const mat of courseSlidesNeedingHydration.slice(0, 10)) {
+      for (const mat of courseSlidesNeedingHydration.slice(0, 20)) {
         if (taskSignal?.aborted || sawCancelled) return;
-        let presentationId =
+        const explicitPresentationId =
           typeof mat.metadata?.presentationId === 'string' ? mat.metadata.presentationId : undefined;
         const lessonId =
           typeof mat.metadata?.lessonId === 'string' ? mat.metadata.lessonId : undefined;
 
-        if (!presentationId && lessonId) {
+        const presentationIds: Array<{ id: string; title?: string }> = [];
+        if (explicitPresentationId) {
+          presentationIds.push({ id: explicitPresentationId });
+        } else if (lessonId) {
           const summaryCandidate = lessonSummaryEndpoint(lessonId);
           const summaryRes = await fetchWithTimeoutAndRetry(new URL(summaryCandidate.path, platform.origin), {
             headers,
@@ -1810,8 +1827,11 @@ export async function discoverCourseResources(
             const summaryData = asRecord(asRecord(summaryRes.data)?.data) ?? asRecord(summaryRes.data);
             const presentations = Array.isArray(summaryData?.presentations) ? summaryData.presentations : [];
             recordDiagnostic(diagnostics, summaryCandidate, summaryRes, presentations.length);
-            const firstPres = asRecord(presentations[0]);
-            if (firstPres) presentationId = firstString(firstPres, 'id', 'presentation_id') || undefined;
+            for (const item of presentations) {
+              const pres = asRecord(item);
+              const pid = pres ? firstString(pres, 'id', 'presentation_id') : '';
+              if (pid) presentationIds.push({ id: pid, title: pres ? firstString(pres, 'title', 'name') || undefined : undefined });
+            }
           } else {
             recordDiagnostic(diagnostics, summaryCandidate, summaryRes);
             if (summaryRes.outcome === 'cancelled') {
@@ -1821,39 +1841,44 @@ export async function discoverCourseResources(
           }
         }
 
-        if (!presentationId) continue;
-
-        const slideCandidate = presentationSlidesEndpoint(presentationId, lessonId);
-        const slideRes = await fetchWithTimeoutAndRetry(new URL(slideCandidate.path, platform.origin), {
-          headers,
-          fetchImpl,
-          signal: taskSignal,
-          timeoutMs,
-          maxRetries,
-          retryBaseDelayMs,
-        });
-        if (slideRes.ok) {
-          const pages = normalizeSlidePages(slideRes.data, platform.origin);
-          recordDiagnostic(diagnostics, slideCandidate, slideRes, pages.length);
-          if (pages.length > 0) {
-            const nextKey = buildMaterialKey(mat.courseId, 'image_slides', mat.id);
-            const upgraded: CourseMaterial = {
-              ...mat,
-              resourceKey: nextKey,
-              type: 'image_slides',
-              slideImages: pages,
-              downloadStatus: 'not_downloaded',
-              experimental: true,
-              metadata: sanitizeMetadata({ ...mat.metadata, presentationId, slidesCount: pages.length }),
-            };
-            materialsMap.delete(mat.resourceKey);
-            materialsMap.set(nextKey, upgraded);
-          }
-        } else {
-          recordDiagnostic(diagnostics, slideCandidate, slideRes);
-          if (slideRes.outcome === 'cancelled') {
-            sawCancelled = true;
-            return;
+        for (let idx = 0; idx < presentationIds.length; idx++) {
+          if (taskSignal?.aborted || sawCancelled) return;
+          const presEntry = presentationIds[idx];
+          const slideCandidate = presentationSlidesEndpoint(presEntry.id, lessonId);
+          const slideRes = await fetchWithTimeoutAndRetry(new URL(slideCandidate.path, platform.origin), {
+            headers,
+            fetchImpl,
+            signal: taskSignal,
+            timeoutMs,
+            maxRetries,
+            retryBaseDelayMs,
+          });
+          if (slideRes.ok) {
+            const pages = normalizeSlidePages(slideRes.data, platform.origin);
+            recordDiagnostic(diagnostics, slideCandidate, slideRes, pages.length);
+            if (pages.length > 0) {
+              const itemId = idx === 0 ? mat.id : `${mat.id}-p${presEntry.id}`;
+              const nextKey = buildMaterialKey(mat.courseId, 'image_slides', itemId);
+              const upgraded: CourseMaterial = {
+                ...mat,
+                id: itemId,
+                resourceKey: nextKey,
+                title: idx === 0 ? mat.title : presEntry.title || `${mat.title} (${idx + 1})`,
+                type: 'image_slides',
+                slideImages: pages,
+                downloadStatus: 'not_downloaded',
+                experimental: true,
+                metadata: sanitizeMetadata({ ...mat.metadata, presentationId: presEntry.id, slidesCount: pages.length }),
+              };
+              if (idx === 0) materialsMap.delete(mat.resourceKey);
+              materialsMap.set(nextKey, upgraded);
+            }
+          } else {
+            recordDiagnostic(diagnostics, slideCandidate, slideRes);
+            if (slideRes.outcome === 'cancelled') {
+              sawCancelled = true;
+              return;
+            }
           }
         }
       }

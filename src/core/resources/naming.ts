@@ -3,11 +3,30 @@ const device = /^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²�
 const maxBytes = 240;
 const encoder = new TextEncoder();
 
+const ACTIVE_EXTENSIONS = new Set([
+  '.exe', '.bat', '.cmd', '.com', '.msi', '.msp', '.ps1', '.psm1', '.vbs', '.vbe',
+  '.js', '.jse', '.mjs', '.cjs', '.wsf', '.wsh', '.scr', '.pif', '.hta', '.lnk',
+  '.reg', '.sh', '.bash', '.zsh', '.command', '.app', '.jar', '.html', '.htm',
+  '.xhtml', '.svg', '.svgz', '.mhtml', '.swf', '.dll', '.cpl', '.inf',
+]);
+
 export function redactCredentialText(value: string): string {
   return value.replace(/\b(?:cookie|set-cookie|authorization|proxy-authorization)\s*:\s*[^\r\n]*/gi, '[已省略凭据]')
-    .replace(/\b(?:csrf[-_]?token|session[-_]?id|(?:access|refresh|auth)[-_]?token|token|password|secret|jwt|api[-_]?key)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^&\s;,]+)/gi,
+    .replace(/\b(?:csrf[-_]?token|session[-_]?id|(?:access|refresh|auth)[-_]?token|token|password|secret|jwt|api[-_]?key|student[-_]?id|user[-_]?id)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^&\s;,]+)/gi,
       '[已省略凭据]')
+    .replace(/(?:学号|学生证号)\s*[:：=]?\s*[A-Za-z0-9._-]{3,}/gi, '[已省略凭据]')
     .replace(/\bBearer\s+[a-z\d._~+\/=-]+/gi, '[已省略凭据]');
+}
+
+export function isActiveFileExtension(filename: string): boolean {
+  const [, ext] = splitExtension(filename);
+  return ACTIVE_EXTENSIONS.has(ext.toLowerCase());
+}
+
+export function neutralizeActiveExtension(filename: string): string {
+  const safe = sanitizeFilename(filename);
+  if (!isActiveFileExtension(safe)) return safe;
+  return fit(safe + '.download');
 }
 
 function truncate(value: string, max: number): string {

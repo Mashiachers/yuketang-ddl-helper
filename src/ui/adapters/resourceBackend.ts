@@ -1,7 +1,9 @@
 import type {
+  CourseInfo,
   CourseMaterial,
   DownloadBatchResult,
   DownloadItemResult,
+  HomeworkItem,
   PlatformInfo,
   ResourceDiscoveryResult,
   SyncStatusReport,
@@ -15,6 +17,7 @@ import {
   createResourceService,
   discoverCourseResources,
   exportAsZip,
+  isActiveFileExtension,
   loadResourceIndex,
   recordDownloadOutcome,
   sanitizeFilename,
@@ -55,8 +58,34 @@ function getSameOriginCookie(origin: string): string {
   return '';
 }
 
+function isDownloadableMaterial(material: CourseMaterial): boolean {
+  if (material.downloadStatus === 'unavailable' || material.type === 'video_meta') return false;
+  return Boolean(material.downloadUrl || (material.slideImages && material.slideImages.length > 0));
+}
+
+function isNotebookLmEligible(material: CourseMaterial, mergeSlideImagesToPdf: boolean): boolean {
+  if (material.type === 'image_slides' || Boolean(material.slideImages?.length)) {
+    return mergeSlideImagesToPdf;
+  }
+  const name = material.filename ?? material.title;
+  if (isActiveFileExtension(name)) return false;
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  if (['pdf', 'md', 'txt', 'docx'].includes(ext)) return true;
+  if (!ext || !name.includes('.')) {
+    const mime = material.mimeType?.split(';', 1)[0].trim().toLowerCase() ?? '';
+    return /^(?:application\/pdf|text\/(?:markdown|plain)|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/.test(mime);
+  }
+  return false;
+}
+
+interface SyncContextHolder {
+  existingCourses?: CourseInfo[];
+  existingHomework?: HomeworkItem[];
+}
+
 export function createBrowserResourceBackend(): ResourceCenterBackend {
-  const services = new Map<string, ResourceService>();
+  const services = new Map<string, { service: ResourceService; ctx: SyncContextHolder }>();
+  let indexWriteQueue = Promise.resolve();
   let lastOrigin = resolveOrigin();
   let lastPlatformLabel = '雨课堂';
 
@@ -64,8 +93,18 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
     const sourcePlatform = useDemoMode ? 'demo' : platform.label;
     const key = `${platform.origin}::${sourcePlatform}`;
     const existing = services.get(key);
-    if (existing && !req) return existing;
+    if (existing) {
+      if (req) {
+        existing.ctx.existingCourses = req.existingCourses;
+        existing.ctx.existingHomework = req.existingHomework;
+      }
+      return existing.service;
+    }
 
+    const ctx: SyncContextHolder = {
+      existingCourses: req?.existingCourses,
+      existingHomework: req?.existingHomework,
+    };
     const service = createResourceService({
       origin: platform.origin,
       sourcePlatform,
@@ -76,29 +115,42 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
         }
         return discoverCourseResources(platform, {
           cookie: getSameOriginCookie(platform.origin),
-          existingCourses: req?.existingCourses,
-          existingHomework: req?.existingHomework,
+          existingCourses: ctx.existingCourses,
+          existingHomework: ctx.existingHomework,
           signal: opts.signal,
           courseIds: opts.courseIds,
           onProgress: opts.onProgress,
         });
       },
     });
-    services.set(key, service);
+    services.set(key, { service, ctx });
     return service;
   }
 
-  async function persistOutcomes(
+  function persistOutcomes(
     origin: string,
     sourcePlatform: string,
     items: readonly DownloadItemResult[],
   ): Promise<void> {
-    let index = await loadResourceIndex(origin, sourcePlatform);
-    const nowIso = new Date().toISOString();
-    for (const item of items) {
-      index = recordDownloadOutcome(index, item, nowIso);
-    }
-    await saveResourceIndex(index);
+    const eligible = items.filter(
+      item =>
+        item.material.downloadStatus !== 'unavailable' &&
+        item.material.type !== 'video_meta' &&
+        item.status !== 'skipped' &&
+        item.errorCode !== 'cancelled',
+    );
+    if (eligible.length === 0) return Promise.resolve();
+
+    const op = indexWriteQueue.then(async () => {
+      let index = await loadResourceIndex(origin, sourcePlatform);
+      const nowIso = new Date().toISOString();
+      for (const item of eligible) {
+        index = recordDownloadOutcome(index, item, nowIso);
+      }
+      await saveResourceIndex(index);
+    });
+    indexWriteQueue = op.then(() => {}, () => {});
+    return op;
   }
 
   function makeDownloadService(origin: string, useDemoMode: boolean) {
@@ -131,6 +183,9 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
         onProgress: req.onProgress,
       });
       await persistOutcomes(origin, sourcePlatform, [result]);
+      if (req.signal?.aborted) {
+        return { material: req.material, status: 'failed', errorCode: 'cancelled', errorMessage: '下载已取消' };
+      }
       if (result.status === 'downloaded' && result.bytes && typeof document !== 'undefined') {
         triggerBrowserDownload(
           result.bytes,
@@ -144,11 +199,12 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
     async downloadBatch(req: ResourceDownloadBatchRequest): Promise<DownloadBatchResult> {
       const origin = resolveOrigin(req.materials[0]?.sourceUrl ?? lastOrigin);
       const sourcePlatform = req.useDemoMode ? 'demo' : req.materials[0]?.sourcePlatform || lastPlatformLabel;
+      const downloadable = req.materials.filter(isDownloadableMaterial);
       const downloader = makeDownloadService(origin, req.useDemoMode);
-      const batch = await downloader.downloadBatch(req.materials, req.options);
+      const batch = await downloader.downloadBatch(downloadable, req.options);
       await persistOutcomes(origin, sourcePlatform, batch.items);
 
-      if (!batch.cancelled && typeof document !== 'undefined') {
+      if (!batch.cancelled && !req.options.signal?.aborted && typeof document !== 'undefined') {
         const downloaded = batch.items.filter(
           (item): item is DownloadItemResult & { bytes: Uint8Array } =>
             item.status === 'downloaded' && Boolean(item.bytes?.length),
@@ -176,8 +232,10 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
               data: item.bytes,
             })),
           );
-          const dateTag = new Date().toISOString().slice(0, 10);
-          triggerBrowserDownload(zipBytes, `yuketang-resources-${dateTag}.zip`, 'application/zip');
+          if (!req.options.signal?.aborted) {
+            const dateTag = new Date().toISOString().slice(0, 10);
+            triggerBrowserDownload(zipBytes, `yuketang-resources-${dateTag}.zip`, 'application/zip');
+          }
         }
       }
 
@@ -196,26 +254,33 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
 
       let downloadedItems: DownloadItemResult[] = [];
       if (req.mode === 'knowledge-base' || req.mode === 'notebooklm') {
-        const downloader = makeDownloadService(origin, req.useDemoMode);
-        const batch = await downloader.downloadBatch(selectedMaterials, {
-          mergeSlideImagesToPdf: req.mergeSlideImagesToPdf,
-          skipAlreadyDownloaded: false,
-          forceRedownload: true,
-          signal: req.signal,
-          onProgress: req.onProgress,
-        });
-        req.signal?.throwIfAborted();
-        downloadedItems = batch.items;
-        await persistOutcomes(origin, sourcePlatform, batch.items);
-        req.onProgress?.({
-          phase: 'packaging-zip',
-          completed: batch.items.length,
-          total: batch.items.length,
-          bytesProcessed: batch.totalBytes,
-          succeeded: batch.succeeded,
-          failed: batch.failed,
-          skipped: batch.skipped,
-        });
+        const downloadableTargets = selectedMaterials.filter(m =>
+          isDownloadableMaterial(m) &&
+          (req.mode !== 'notebooklm' || isNotebookLmEligible(m, req.mergeSlideImagesToPdf)),
+        );
+        if (downloadableTargets.length > 0) {
+          const downloader = makeDownloadService(origin, req.useDemoMode);
+          const batch = await downloader.downloadBatch(downloadableTargets, {
+            mergeSlideImagesToPdf: req.mergeSlideImagesToPdf,
+            skipAlreadyDownloaded: false,
+            forceRedownload: true,
+            signal: req.signal,
+            onProgress: req.onProgress,
+          });
+          req.signal?.throwIfAborted();
+          downloadedItems = batch.items;
+          await persistOutcomes(origin, sourcePlatform, batch.items);
+          req.signal?.throwIfAborted();
+          req.onProgress?.({
+            phase: 'packaging-zip',
+            completed: batch.items.length,
+            total: batch.items.length,
+            bytesProcessed: batch.totalBytes,
+            succeeded: batch.succeeded,
+            failed: batch.failed,
+            skipped: batch.skipped,
+          });
+        }
       }
 
       const buildInput = {
@@ -242,7 +307,7 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
           typeof primary.data === 'string' ? encoder.encode(primary.data) : primary.data;
         const mimeType = req.mode === 'json-only' ? 'application/json;charset=utf-8' : 'text/markdown;charset=utf-8';
         const filename = primary.path;
-        if (typeof document !== 'undefined') {
+        if (!req.signal?.aborted && typeof document !== 'undefined') {
           triggerBrowserDownload(rawBytes, filename, mimeType);
         }
         return { filename, manifest, bytesLength: rawBytes.length };
@@ -250,7 +315,7 @@ export function createBrowserResourceBackend(): ResourceCenterBackend {
 
       const { zipBytes, filename, manifest } = await exportAsZip(buildInput);
       req.signal?.throwIfAborted();
-      if (typeof document !== 'undefined') {
+      if (!req.signal?.aborted && typeof document !== 'undefined') {
         triggerBrowserDownload(zipBytes, filename, 'application/zip');
       }
       return { filename, manifest, bytesLength: zipBytes.length };

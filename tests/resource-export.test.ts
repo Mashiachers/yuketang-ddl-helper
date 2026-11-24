@@ -338,4 +338,36 @@ describe('MCP-ready resource service', () => {
     expect((await service.getChangesSince(firstSync)).updatedMaterials).toHaveLength(demo.materials.length);
     expect(await service.getSyncStatus()).toMatchObject({ knownMaterials: demo.materials.length, lastSyncedAt: new Date(clock).toISOString() });
   });
+
+  it('exports distinct folders when two classes share the same course.id and strips COS signed query keys', async () => {
+    const testOrigin = 'https://demo.yuketang.cn';
+    const demo = createDemoResourceDiscovery(now, testOrigin);
+    const classA = { ...demo.courses[0], classroomId: 'class-a' };
+    const classB = { ...demo.courses[0], classroomId: 'class-b' };
+    const cosMaterial = {
+      ...demo.materials[0],
+      downloadUrl: testOrigin + '/slides.pdf?q-signature=COS_SECRET&q-ak=AK_SECRET',
+    };
+    const { zipBytes } = await exportAsZip({
+      mode: 'knowledge-base',
+      sourceOrigin: testOrigin,
+      sourcePlatform: 'demo',
+      courses: [classA, classB],
+      materials: [cosMaterial],
+      now,
+    });
+    const names = readZipEntryNames(zipBytes);
+    expect(names.filter(n => n.endsWith('/README.md')).length).toBeGreaterThanOrEqual(3);
+    expect(decoder.decode(zipBytes)).not.toMatch(/COS_SECRET|AK_SECRET/);
+  });
+
+  it('sniffs PNG magic bytes even when MIME claims image/jpeg before PDF embedding', async () => {
+    const testOrigin = 'https://demo.yuketang.cn';
+    const fakeJpegMimePng = { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), mimeType: 'image/jpeg' };
+    const validJpeg = createDemoFileBytes(createDemoResourceDiscovery(now, testOrigin).materials[1], { index: 0, url: testOrigin + '/1.jpg' }).bytes;
+    const converter = vi.fn(async () => ({ bytes: validJpeg, width: 48, height: 27 }));
+    const pdf = await mergeSlideImagesToPdf([fakeJpegMimePng], converter);
+    expect(converter).toHaveBeenCalledTimes(1);
+    expect(decoder.decode(pdf.subarray(0, 8))).toBe('%PDF-1.4');
+  });
 });
